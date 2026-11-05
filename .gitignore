@@ -1,0 +1,39 @@
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Python virtual environments & caches
+venv/
+.venv/
+env/
+backend/venv/
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node.js / Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+
+# Local DB backups & large binary transformer weights (>100MB GitHub limit)
+*.sqlite3
+*.db
+backend/data/local_db_backup.json
+backend/ml/models/*.zip
+backend/ml/models/*/*.safetensors
+backend/ml/models/*/*.bin
+
+# OS & IDE files
+.DS_Store
+Thumbs.db
+.agents/
+.vscode/
+

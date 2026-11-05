@@ -1,0 +1,7 @@
+Model,Accuracy,Precision,Recall,F1-Score,ROC-AUC,5-Fold CV F1,Latency (ms/doc)
+Logistic Regression (TF-IDF),0.974,0.9737,0.9737,0.9737,0.9939,0.9638,0.55
+Calibrated Linear SVM,0.987,1.0,0.9737,0.9867,0.998,0.9823,0.414
+Random Forest NLP,0.9091,0.8605,0.9737,0.9136,0.9865,0.8802,0.558
+TruthLens Hybrid Ensemble,1.0,1.0,1.0,1.0,1.0,0.9823,2.993
+ukr-roberta-base (Fine-Tuned),1.0,1.0,1.0,1.0,1.0,0.9854,3.882
+xlm-roberta-base (Fine-Tuned),0.987,0.9744,1.0,0.987,0.996,0.9781,4.415

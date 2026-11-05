@@ -1,0 +1,44 @@
+name: TruthLens 24/7 News & FactCheck Ingestion
+
+on:
+  schedule:
+    # Запускається автоматично кожні 2 години цілодобово (24/7)
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+    # Дозволяє також запустити збір новин вручну кнопкою "Run workflow" у вкладці Actions на GitHub
+
+jobs:
+  sync-news-and-factchecks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi pydantic pydantic-settings python-dotenv sqlalchemy asyncpg psycopg2-binary aiosqlite feedparser trafilatura lxml_html_clean beautifulsoup4 httpx APScheduler scikit-learn joblib matplotlib numpy
+
+      - name: Run 24/7 RSS News & FactCheck Sync into Cloud PostgreSQL
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "ERROR: Secret DATABASE_URL is not configured in GitHub Repository Secrets!"
+            exit 1
+          fi
+          if [ -d "NewsAggregatorApp/backend" ]; then
+            cd NewsAggregatorApp/backend
+          elif [ -d "backend" ]; then
+            cd backend
+          fi
+          python scripts/run_scheduled_sync.py
+

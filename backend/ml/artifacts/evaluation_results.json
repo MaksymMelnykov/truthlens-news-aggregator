@@ -1,0 +1,320 @@
+{
+  "dataset": {
+    "total_samples": 348,
+    "train_samples": 271,
+    "test_samples": 77
+  },
+  "models": {
+    "Logistic Regression (TF-IDF)": {
+      "accuracy": 0.974,
+      "precision": 0.9737,
+      "recall": 0.9737,
+      "f1_score": 0.9737,
+      "roc_auc": 0.9939,
+      "cv_5fold_f1": 0.9638,
+      "latency_ms_per_article": 0.55,
+      "train_duration_sec": 0.218,
+      "confusion_matrix": [
+        [
+          38,
+          1
+        ],
+        [
+          1,
+          37
+        ]
+      ]
+    },
+    "Calibrated Linear SVM": {
+      "accuracy": 0.987,
+      "precision": 1.0,
+      "recall": 0.9737,
+      "f1_score": 0.9867,
+      "roc_auc": 0.998,
+      "cv_5fold_f1": 0.9823,
+      "latency_ms_per_article": 0.414,
+      "train_duration_sec": 0.129,
+      "confusion_matrix": [
+        [
+          39,
+          0
+        ],
+        [
+          1,
+          37
+        ]
+      ]
+    },
+    "Random Forest NLP": {
+      "accuracy": 0.9091,
+      "precision": 0.8605,
+      "recall": 0.9737,
+      "f1_score": 0.9136,
+      "roc_auc": 0.9865,
+      "cv_5fold_f1": 0.8802,
+      "latency_ms_per_article": 0.558,
+      "train_duration_sec": 0.318,
+      "confusion_matrix": [
+        [
+          33,
+          6
+        ],
+        [
+          1,
+          37
+        ]
+      ]
+    },
+    "TruthLens Hybrid Ensemble": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "roc_auc": 1.0,
+      "cv_5fold_f1": 0.9823,
+      "latency_ms_per_article": 2.993,
+      "train_duration_sec": 2.014,
+      "confusion_matrix": [
+        [
+          39,
+          0
+        ],
+        [
+          0,
+          38
+        ]
+      ]
+    },
+    "ukr-roberta-base (Fine-Tuned)": {
+      "accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1_score": 1.0,
+      "roc_auc": 1.0,
+      "cv_5fold_f1": 0.9854,
+      "latency_ms_per_article": 3.882,
+      "train_duration_sec": 236.046,
+      "confusion_matrix": [
+        [
+          39,
+          0
+        ],
+        [
+          0,
+          38
+        ]
+      ]
+    },
+    "xlm-roberta-base (Fine-Tuned)": {
+      "accuracy": 0.987,
+      "precision": 0.9744,
+      "recall": 1.0,
+      "f1_score": 0.987,
+      "roc_auc": 0.996,
+      "cv_5fold_f1": 0.9781,
+      "latency_ms_per_article": 4.415,
+      "train_duration_sec": 268.42,
+      "confusion_matrix": [
+        [
+          38,
+          1
+        ],
+        [
+          0,
+          38
+        ]
+      ]
+    }
+  },
+  "transformer_training_history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.538,
+      "val_loss": 0.23,
+      "val_f1": 0.8706,
+      "val_accuracy": 0.8571,
+      "xlm_train_loss": 0.592,
+      "xlm_val_loss": 0.284,
+      "xlm_val_f1": 0.859,
+      "xlm_val_accuracy": 0.8442
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.0878,
+      "val_loss": 0.0606,
+      "val_f1": 0.9744,
+      "val_accuracy": 0.974,
+      "xlm_train_loss": 0.142,
+      "xlm_val_loss": 0.0985,
+      "xlm_val_f1": 0.9487,
+      "xlm_val_accuracy": 0.9481
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.0243,
+      "val_loss": 0.0029,
+      "val_f1": 1.0,
+      "val_accuracy": 1.0,
+      "xlm_train_loss": 0.051,
+      "xlm_val_loss": 0.0392,
+      "xlm_val_f1": 0.974,
+      "xlm_val_accuracy": 0.974
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.0031,
+      "val_loss": 0.002,
+      "val_f1": 1.0,
+      "val_accuracy": 1.0,
+      "xlm_train_loss": 0.0184,
+      "xlm_val_loss": 0.0215,
+      "xlm_val_f1": 0.987,
+      "xlm_val_accuracy": 0.987
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.0027,
+      "val_loss": 0.0021,
+      "val_f1": 1.0,
+      "val_accuracy": 1.0,
+      "xlm_train_loss": 0.0095,
+      "xlm_val_loss": 0.0198,
+      "xlm_val_f1": 0.987,
+      "xlm_val_accuracy": 0.987
+    }
+  ],
+  "xai_discriminative_features": {
+    "fake_indicators": [
+      {
+        "feature": "source",
+        "weight": 1.2228
+      },
+      {
+        "feature": "відео",
+        "weight": 1.1894
+      },
+      {
+        "feature": "медіа",
+        "weight": 0.9799
+      },
+      {
+        "feature": "фото",
+        "weight": 0.9185
+      },
+      {
+        "feature": "джерело",
+        "weight": 0.9181
+      },
+      {
+        "feature": "нібито",
+        "weight": 0.8578
+      },
+      {
+        "feature": "росії",
+        "weight": 0.68
+      },
+      {
+        "feature": "те що",
+        "weight": 0.659
+      },
+      {
+        "feature": "про те",
+        "weight": 0.6017
+      },
+      {
+        "feature": "поширюється",
+        "weight": 0.5896
+      },
+      {
+        "feature": "новости",
+        "weight": 0.5633
+      },
+      {
+        "feature": "насправді",
+        "weight": 0.5552
+      },
+      {
+        "feature": "допомогою",
+        "weight": 0.534
+      },
+      {
+        "feature": "за допомогою",
+        "weight": 0.534
+      },
+      {
+        "feature": "військовий",
+        "weight": 0.5246
+      }
+    ],
+    "real_indicators": [
+      {
+        "feature": "листопада",
+        "weight": -1.0282
+      },
+      {
+        "feature": "також",
+        "weight": -0.6996
+      },
+      {
+        "feature": "даними",
+        "weight": -0.5937
+      },
+      {
+        "feature": "представників",
+        "weight": -0.5248
+      },
+      {
+        "feature": "трамп",
+        "weight": -0.5228
+      },
+      {
+        "feature": "набу",
+        "weight": -0.5203
+      },
+      {
+        "feature": "міністерство",
+        "weight": -0.5172
+      },
+      {
+        "feature": "за даними",
+        "weight": -0.5036
+      },
+      {
+        "feature": "конгресу",
+        "weight": -0.4553
+      },
+      {
+        "feature": "фахівці",
+        "weight": -0.4528
+      },
+      {
+        "feature": "водопостачання",
+        "weight": -0.4486
+      },
+      {
+        "feature": "понад",
+        "weight": -0.4346
+      },
+      {
+        "feature": "партії",
+        "weight": -0.4301
+      },
+      {
+        "feature": "проміжних",
+        "weight": -0.429
+      },
+      {
+        "feature": "of the",
+        "weight": -0.4234
+      }
+    ]
+  },
+  "generated_figures": [
+    "D:\\6 курс 2026 1 семестр\\Дипломна робота\\NewsAggregatorApp\\docs\\figures\\ch4\\confusion_matrix.png",
+    "D:\\6 курс 2026 1 семестр\\Дипломна робота\\NewsAggregatorApp\\docs\\figures\\ch4\\roc_curves_comparison.png",
+    "D:\\6 курс 2026 1 семестр\\Дипломна робота\\NewsAggregatorApp\\docs\\figures\\ch4\\metrics_comparison_bar.png",
+    "D:\\6 курс 2026 1 семестр\\Дипломна робота\\NewsAggregatorApp\\docs\\figures\\ch4\\training_convergence.png",
+    "D:\\6 курс 2026 1 семестр\\Дипломна робота\\NewsAggregatorApp\\docs\\figures\\ch4\\feature_importance_xai.png"
+  ],
+  "artifact_path": "D:\\6 курс 2026 1 семестр\\Дипломна робота\\NewsAggregatorApp\\backend\\ml\\artifacts\\truthlens_ml_pipeline.joblib"
+}
