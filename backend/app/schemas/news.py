@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel, HttpUrl, Field, ConfigDict
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class TrustScoreBreakdown(BaseModel):
@@ -8,11 +8,35 @@ class TrustScoreBreakdown(BaseModel):
     verdict: str = Field(..., description="Вердикт: Verified / Caution / Suspicious / High Risk")
     stylometry_score: float = Field(..., ge=0.0, le=100.0, description="Оцінка спокою мови та відсутності клікбейту")
     source_reputation_score: float = Field(..., ge=0.0, le=100.0, description="Індекс авторитетності видання")
-    ml_authenticity_score: float = Field(..., ge=0.0, le=100.0, description="Ймовірність достовірності за моделлю NLP")
-    corroboration_score: float = Field(..., ge=0.0, le=100.0, description="Підтвердження іншими ЗМІ")
-    fact_check_flag: bool = Field(default=False, description="Чи є пряме спростування у базі фактчекерів")
+    ml_authenticity_score: float = Field(..., ge=0.0, le=100.0, description="Ймовірність достовірності за ансамблем NLP (ukr-roberta-base + xlm-roberta-base)")
+    corroboration_score: float = Field(..., ge=0.0, le=100.0, description="Семантичне підтвердження іншими ЗМІ (pgvector)")
+    fact_check_flag: bool = Field(default=False, description="Чи є пряме або семантичне спростування у базі фактчекерів")
     manipulation_markers: List[str] = Field(default_factory=list, description="Знайдені маніпулятивні патерни чи слова")
     explanation: str = Field(..., description="Розгорнуте пояснення XAI чому сформовано такий рейтинг")
+    models_breakdown: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Окремі оцінки автентичності від ukr-roberta-base, xlm-roberta-base та TruthLens Hybrid Ensemble",
+    )
+    xai_top_tokens: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Дискримінативні токени та біграми XAI з ваговими коефіцієнтами",
+    )
+    corroborating_articles: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Список знайдених через pgvector публікацій інших незалежних ЗМІ про цю подію",
+    )
+    corroboration_summary: str = Field(
+        default="",
+        description="Текстовий підсумок крос-верифікації по незалежних медіа",
+    )
+    matched_fact_checks: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Знайдені через pgvector семантично близькі спростування StopFake та VoxCheck",
+    )
+    xai_reasoning_steps: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Покроковий XAI-аудит 5 компонентів формування Trust Score V4",
+    )
 
 
 class SourceBase(BaseModel):

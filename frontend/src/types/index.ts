@@ -12,6 +12,44 @@ export interface User {
   created_at: string;
 }
 
+export interface XAITokenContribution {
+  token: string;
+  weight: number;
+  direction: "fake_indicator" | "real_indicator" | string;
+}
+
+export interface CorroboratingArticleItem {
+  id: number;
+  title: string;
+  url: string;
+  source_name: string;
+  domain: string;
+  trust_score: number;
+  verdict: string;
+  similarity: number;
+  is_whitelisted: boolean;
+  published_at?: string;
+}
+
+export interface SemanticFactCheckMatch {
+  id: number;
+  claim_text: string;
+  verdict: string;
+  rating: string;
+  explanation?: string;
+  source_url?: string;
+  fact_checker: string;
+  similarity: number;
+}
+
+export interface XAIReasoningStep {
+  step: number;
+  component: string;
+  score: number;
+  status: "good" | "warning" | "danger" | "neutral" | string;
+  summary: string;
+}
+
 export interface TrustScoreBreakdown {
   score: number;
   verdict: "Verified" | "Caution" | "Suspicious" | "High Risk" | string;
@@ -22,6 +60,18 @@ export interface TrustScoreBreakdown {
   fact_check_flag: boolean;
   manipulation_markers: string[];
   explanation: string;
+  models_breakdown?: Record<string, number>;
+  xai_top_tokens?: XAITokenContribution[];
+  corroborating_articles?: CorroboratingArticleItem[];
+  corroboration_summary?: string;
+  matched_fact_checks?: SemanticFactCheckMatch[];
+  xai_reasoning_steps?: XAIReasoningStep[];
+}
+
+export interface ArticleDetail extends Article {
+  full_text: string;
+  trust_breakdown: TrustScoreBreakdown;
+  similar_articles: Article[];
 }
 
 export interface Article {

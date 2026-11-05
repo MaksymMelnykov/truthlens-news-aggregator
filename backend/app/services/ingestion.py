@@ -307,19 +307,23 @@ async def calculate_multi_factor_trust(
     source: Optional[Source] = None,
     db: Optional[AsyncSession] = None,
     source_domain_override: Optional[str] = None,
+    exclude_article_id: Optional[int] = None,
+    enable_cross_verification: bool = True,
 ) -> tuple[float, str, Dict[str, Any]]:
     """
-    Повний багатофакторний розрахунок Trust Score V3 (Тиждень 3):
-    - Репутація домену (ІМІ White/Gray/Black list)
-    - Стилометричний аналіз (клікбейт, маніпуляції, CAPS LOCK, пунктуація)
-    - Нейромережева / ML-класифікація автентичності тексту (MLClassifierService)
-    - База спростувань (VoxCheck, StopFake, Google FactCheck)
-    - Пояснювальний ШІ (Explainable AI - XAI)
+    Повний багатофакторний розрахунок Trust Score V4 (Тиждень 4):
+    1. Репутація домену (ІМІ White/Gray/Black list)
+    2. Стилометричний аналіз (клікбейт, маніпуляції, CAPS LOCK, пунктуація)
+    3. Мультимодельна нейромережева класифікація автентичності тексту (ukr-roberta-base + xlm-roberta-base + Hybrid Ensemble)
+    4. Семантична крос-верифікація по незалежних ЗМІ в pgvector (CrossVerificationService)
+    5. Семантична та лексична звірка з базою фактчеків (StopFake, VoxCheck, Google FactCheck)
+    6. Пояснювальний ШІ (Explainable AI - XAI) з декомпозицією токенів та 5-кроковим аудитом.
     """
     from app.services.stylometry_service import stylometry_service
     from app.services.reputation_service import reputation_service
     from app.services.factcheck_service import fact_check_service
     from app.services.ml_classifier_service import ml_classifier_service
+    from app.services.cross_verification_service import cross_verification_service
 
     domain = source_domain_override if source_domain_override is not None else getattr(source, "domain", "")
     rep = reputation_service.get_reputation(domain)
@@ -336,9 +340,15 @@ async def calculate_multi_factor_trust(
     if is_whitelisted:
         source_rating = max(source_rating, 90.0)
 
-    # 1. Стилометрія та ML-інференс
+    # 1. Стилометрія та ML-інференс (ukr-roberta-base + xlm-roberta-base + Hybrid Ensemble)
     sty_res = stylometry_service.analyze(title, text)
     ml_res = ml_classifier_service.predict(title, text)
+
+    xai_top_tokens = [
+        {"token": t.token, "weight": round(t.weight, 4), "direction": t.direction}
+        for t in ml_res.top_tokens
+    ]
+    models_breakdown = {k: round(float(v), 1) for k, v in (ml_res.models_breakdown or {}).items()}
 
     markers: List[str] = [f"{t.text} ({t.description})" for t in sty_res.triggers]
     if ml_res.ml_authenticity_score < 50.0:
@@ -351,6 +361,29 @@ async def calculate_multi_factor_trust(
     # 2. Чорний список -> негайний вердикт High Risk
     if is_blacklisted:
         reason = f"Джерело {domain or rep.name} знаходиться в чорному списку пропагандистських / підсанкційних ресурсів."
+        xai_steps = [
+            {
+                "step": 1,
+                "component": "Репутація джерела (ІМІ)",
+                "score": round(source_rating, 1),
+                "status": "danger",
+                "summary": reason,
+            },
+            {
+                "step": 2,
+                "component": "Стилометрія та емоційний тон",
+                "score": round(sty_res.stylometry_trust_index, 1),
+                "status": "warning" if sty_res.overall_penalty > 20 else "neutral",
+                "summary": f"{sty_res.summary_verdict} ({sty_res.stylometry_trust_index:.0f}%).",
+            },
+            {
+                "step": 3,
+                "component": "Нейромережевий ансамбль (Dual-RoBERTa)",
+                "score": round(ml_res.ml_authenticity_score, 1),
+                "status": "danger" if ml_res.ml_authenticity_score < 50 else "warning",
+                "summary": ml_res.explanation_summary,
+            },
+        ]
         return 15.0, "High Risk", {
             "source_reputation": source_rating,
             "stylometry_score": sty_res.stylometry_trust_index,
@@ -362,45 +395,175 @@ async def calculate_multi_factor_trust(
             "explanation": f"{reason} {ml_res.explanation_summary}",
             "ml_model_name": ml_res.model_name,
             "ml_latency_ms": ml_res.inference_latency_ms,
+            "models_breakdown": models_breakdown,
+            "xai_top_tokens": xai_top_tokens,
+            "corroborating_articles": [],
+            "corroboration_summary": "Джерело заблоковане у реєстрі дезінформації.",
+            "matched_fact_checks": [],
+            "xai_reasoning_steps": xai_steps,
         }
 
-    # 3. Звірка з базою фактчеків
+    # 3. Звірка з базою фактчеків (лексична + семантична в pgvector)
     fact_check_match = await fact_check_service.match_article(title, text, db)
-    if fact_check_match.is_debunked:
-        if not is_whitelisted or fact_check_match.confidence >= 0.95:
-            reason = fact_check_match.explanation or "Новина збігається з офіційно спростованим фейком."
-            debunk_markers = [f"Спростовано {fact_check_match.matched_claim.fact_checker}: {fact_check_match.matched_claim.rating}"] if fact_check_match.matched_claim else ["Збіг із базою спростованих фейків"]
-            return 15.0, "High Risk", {
-                "source_reputation": source_rating,
-                "stylometry_score": sty_res.stylometry_trust_index,
-                "ml_authenticity_score": min(ml_res.ml_authenticity_score, 25.0),
-                "corroboration_score": 10.0,
-                "factcheck_debunked": True,
-                "fact_checker": fact_check_match.matched_claim.fact_checker if fact_check_match.matched_claim else None,
-                "manipulation_markers": debunk_markers + markers[:4],
-                "reason": reason,
-                "explanation": reason,
-                "ml_model_name": ml_res.model_name,
-                "ml_latency_ms": ml_res.inference_latency_ms,
-            }
+    semantic_fc_matches: List[Any] = []
+    if db is not None and enable_cross_verification:
+        try:
+            semantic_fc_matches = await cross_verification_service.find_semantic_factchecks(
+                title=title, text_body=text, db=db, top_k=3
+            )
+        except Exception as e:
+            logger.debug("Помилка семантичного пошуку фактчеків: %s", e)
 
-    # 4. Композитна оцінка Trust Score V3 (Репутація + Стилометрія + ML-модель)
+    matched_fact_checks_dicts = [
+        {
+            "id": m.id,
+            "claim_text": m.claim,
+            "verdict": m.rating,
+            "rating": m.rating,
+            "explanation": m.explanation,
+            "source_url": m.review_url,
+            "fact_checker": m.fact_checker,
+            "similarity": m.similarity,
+        }
+        for m in semantic_fc_matches
+    ]
+    if fact_check_match.is_debunked and fact_check_match.matched_claim:
+        fc_claim = fact_check_match.matched_claim
+        if not any(m.get("id") == fc_claim.id for m in matched_fact_checks_dicts):
+            matched_fact_checks_dicts.insert(
+                0,
+                {
+                    "id": fc_claim.id,
+                    "claim_text": fc_claim.claim,
+                    "verdict": fc_claim.rating,
+                    "rating": fc_claim.rating,
+                    "explanation": fc_claim.explanation,
+                    "source_url": fc_claim.review_url,
+                    "fact_checker": fc_claim.fact_checker,
+                    "similarity": round(float(fact_check_match.confidence), 3),
+                },
+            )
+
+    # Перевіряємо чи є пряме спростування або високоточний семантичний збіг із фейком
+    has_semantic_debunk = bool(semantic_fc_matches and semantic_fc_matches[0].similarity >= 0.72 and not is_whitelisted)
+    if fact_check_match.is_debunked or has_semantic_debunk:
+        top_fc = matched_fact_checks_dicts[0] if matched_fact_checks_dicts else None
+        reason = (
+            fact_check_match.explanation
+            or (
+                f"Виявлено семантичний збіг ({int(top_fc['similarity'] * 100)}%) зі спростованим фейком ({top_fc['fact_checker']}): «{top_fc['claim_text']}»."
+                if top_fc
+                else "Новина збігається з офіційно спростованим фейком."
+            )
+        )
+        debunk_markers = (
+            [f"Спростовано {top_fc['fact_checker']}: {top_fc['rating']}"]
+            if top_fc
+            else ["Збіг із базою спростованих фейків"]
+        )
+        xai_steps = [
+            {
+                "step": 1,
+                "component": "База фактчеків (StopFake / VoxCheck + pgvector)",
+                "score": 10.0,
+                "status": "danger",
+                "summary": reason,
+            },
+            {
+                "step": 2,
+                "component": "Нейромережевий ансамбль (Dual-RoBERTa)",
+                "score": round(min(ml_res.ml_authenticity_score, 25.0), 1),
+                "status": "danger",
+                "summary": ml_res.explanation_summary,
+            },
+            {
+                "step": 3,
+                "component": "Стилометрія та маркери маніпуляцій",
+                "score": round(sty_res.stylometry_trust_index, 1),
+                "status": "warning",
+                "summary": f"{sty_res.summary_verdict} ({sty_res.stylometry_trust_index:.0f}%).",
+            },
+        ]
+        return 15.0, "High Risk", {
+            "source_reputation": source_rating,
+            "stylometry_score": sty_res.stylometry_trust_index,
+            "ml_authenticity_score": min(ml_res.ml_authenticity_score, 25.0),
+            "corroboration_score": 10.0,
+            "factcheck_debunked": True,
+            "fact_checker": top_fc["fact_checker"] if top_fc else None,
+            "manipulation_markers": debunk_markers + markers[:4],
+            "reason": reason,
+            "explanation": reason,
+            "ml_model_name": ml_res.model_name,
+            "ml_latency_ms": ml_res.inference_latency_ms,
+            "models_breakdown": models_breakdown,
+            "xai_top_tokens": xai_top_tokens,
+            "corroborating_articles": [],
+            "corroboration_summary": reason,
+            "matched_fact_checks": matched_fact_checks_dicts,
+            "xai_reasoning_steps": xai_steps,
+        }
+
+    # 4. Ефективна оцінка ML та крос-верифікація між ЗМІ через pgvector
     effective_ml_score = ml_res.ml_authenticity_score
     if is_whitelisted and sty_res.overall_penalty <= 15.0:
         effective_ml_score = max(effective_ml_score, 85.0)
 
+    corroborating_articles_dicts: List[Dict[str, Any]] = []
+    corroboration_summary = ""
+    if db is not None and enable_cross_verification:
+        try:
+            corr_res = await cross_verification_service.corroborate_article(
+                title=title,
+                text_body=text,
+                source_domain=domain,
+                is_whitelisted=is_whitelisted,
+                ml_authenticity_score=effective_ml_score,
+                stylometry_score=sty_res.stylometry_trust_index,
+                db=db,
+                exclude_article_id=exclude_article_id,
+                max_related=5,
+            )
+            corroboration_score = corr_res.corroboration_score
+            corroborating_articles_dicts = [
+                {
+                    "id": a.id,
+                    "title": a.title,
+                    "url": a.url,
+                    "source_name": a.source_name,
+                    "domain": a.domain,
+                    "trust_score": a.trust_score,
+                    "verdict": a.verdict,
+                    "similarity": a.similarity,
+                    "is_whitelisted": a.is_whitelisted_source,
+                    "published_at": a.published_at.isoformat() if a.published_at else None,
+                }
+                for a in corr_res.related_articles
+            ]
+            corroboration_summary = corr_res.summary
+        except Exception as e:
+            logger.debug("Помилка крос-верифікації pgvector: %s", e)
+            corroboration_score = round((source_rating * 0.6 + effective_ml_score * 0.4), 1)
+            corroboration_summary = "Базова оцінка крос-верифікації за репутацією джерела та ML-профілем."
+    else:
+        corroboration_score = round((source_rating * 0.6 + effective_ml_score * 0.4), 1)
+        corroboration_summary = "Швидка оцінка крос-верифікації при фоновій синхронізації."
+
+    # 5. Композитна оцінка Trust Score V4 (Репутація + Стилометрія + ML Dual-RoBERTa + Крос-верифікація pgvector)
     if has_known_domain:
         trust_score = (
-            (source_rating * 0.42)
-            + (sty_res.stylometry_trust_index * 0.30)
-            + (effective_ml_score * 0.28)
+            (source_rating * 0.36)
+            + (sty_res.stylometry_trust_index * 0.25)
+            + (effective_ml_score * 0.24)
+            + (corroboration_score * 0.15)
         )
     else:
-        # Якщо перевіряється довільний текст без відомого домену — основну вагу мають Стилометрія та ML-класифікатор
+        # Якщо перевіряється довільний текст без відомого домену — основну вагу мають Стилометрія, ML та Крос-верифікація
         trust_score = (
-            (sty_res.stylometry_trust_index * 0.45)
-            + (effective_ml_score * 0.45)
-            + (source_rating * 0.10)
+            (sty_res.stylometry_trust_index * 0.38)
+            + (effective_ml_score * 0.38)
+            + (corroboration_score * 0.16)
+            + (source_rating * 0.08)
         )
 
     # Додаткове зниження при високій концентрації пропаганди чи клікбейту на не-білих джерелах
@@ -416,13 +579,60 @@ async def calculate_multi_factor_trust(
     else:
         verdict = "High Risk"
 
-    corroboration_score = round((source_rating * 0.6 + effective_ml_score * 0.4), 1)
-
     explanation_parts = []
     if has_known_domain:
         explanation_parts.append(f"Джерело «{rep.name}» ({rep.imi_category}, рейтинг {source_rating:.0f}%).")
     explanation_parts.append(f"Стилометрія: {sty_res.summary_verdict} ({sty_res.stylometry_trust_index:.0f}%).")
     explanation_parts.append(ml_res.explanation_summary)
+    if corroboration_summary:
+        explanation_parts.append(corroboration_summary)
+
+    # 6. Побудова покрокового XAI-аудиту (5 факторів)
+    xai_steps = [
+        {
+            "step": 1,
+            "component": "Репутація джерела (ІМІ Моніторинг)",
+            "score": round(source_rating, 1),
+            "status": "good" if source_rating >= 80 else ("warning" if source_rating >= 55 else "danger"),
+            "summary": (
+                f"Джерело «{rep.name}» ({rep.imi_category}, індекс {source_rating:.0f}%)."
+                if has_known_domain
+                else f"Домен не вказано або відсутній у реєстрі ІМІ — застосовано нейтральний базовий рейтинг ({source_rating:.0f}%)."
+            ),
+        },
+        {
+            "step": 2,
+            "component": "Стилометричний та лінгвістичний аналіз",
+            "score": round(sty_res.stylometry_trust_index, 1),
+            "status": "good" if sty_res.stylometry_trust_index >= 80 else ("warning" if sty_res.stylometry_trust_index >= 55 else "danger"),
+            "summary": f"{sty_res.summary_verdict}. Штраф клікбейту: {sty_res.clickbait_score:.0f}%, маніпуляцій: {sty_res.manipulation_score:.0f}%.",
+        },
+        {
+            "step": 3,
+            "component": "Нейромережевий ансамбль (ukr-roberta + xlm-roberta)",
+            "score": round(effective_ml_score, 1),
+            "status": "good" if effective_ml_score >= 75 else ("warning" if effective_ml_score >= 50 else "danger"),
+            "summary": ml_res.explanation_summary,
+        },
+        {
+            "step": 4,
+            "component": "Крос-верифікація між ЗМІ (pgvector)",
+            "score": round(corroboration_score, 1),
+            "status": "good" if corroboration_score >= 78 else ("warning" if corroboration_score >= 50 else "danger"),
+            "summary": corroboration_summary,
+        },
+        {
+            "step": 5,
+            "component": "Семантична база фактчеків (StopFake / VoxCheck)",
+            "score": 100.0 if not matched_fact_checks_dicts else 65.0,
+            "status": "good" if not matched_fact_checks_dicts else "warning",
+            "summary": (
+                "Прямих або семантичних збігів із відомими фейками у реєстрах StopFake та VoxCheck не виявлено."
+                if not matched_fact_checks_dicts
+                else f"Знайдено {len(matched_fact_checks_dicts)} тематично споріднених записів у базі фактчеків (макс. близькість {int(matched_fact_checks_dicts[0]['similarity'] * 100)}%)."
+            ),
+        },
+    ]
 
     breakdown = {
         "source_reputation": round(source_rating, 1),
@@ -438,6 +648,12 @@ async def calculate_multi_factor_trust(
         "explanation": " ".join(explanation_parts),
         "ml_model_name": ml_res.model_name,
         "ml_latency_ms": ml_res.inference_latency_ms,
+        "models_breakdown": models_breakdown,
+        "xai_top_tokens": xai_top_tokens,
+        "corroborating_articles": corroborating_articles_dicts,
+        "corroboration_summary": corroboration_summary,
+        "matched_fact_checks": matched_fact_checks_dicts,
+        "xai_reasoning_steps": xai_steps,
     }
 
     return trust_score, verdict, breakdown

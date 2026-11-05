@@ -62,6 +62,12 @@ async def verify_custom_text(
         fact_check_flag=bool(details.get("factcheck_debunked", False)),
         manipulation_markers=list(details.get("manipulation_markers", [])),
         explanation=str(details.get("explanation") or details.get("reason") or ""),
+        models_breakdown=dict(details.get("models_breakdown", {})),
+        xai_top_tokens=list(details.get("xai_top_tokens", [])),
+        corroborating_articles=list(details.get("corroborating_articles", [])),
+        corroboration_summary=str(details.get("corroboration_summary", "")),
+        matched_fact_checks=list(details.get("matched_fact_checks", [])),
+        xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
     )
 
     # Зберігаємо аналітичний звіт у таблицю analysis_reports
@@ -179,6 +185,12 @@ async def verify_custom_url(
         fact_check_flag=bool(details.get("factcheck_debunked", False)),
         manipulation_markers=list(details.get("manipulation_markers", [])),
         explanation=str(details.get("explanation") or details.get("reason") or ""),
+        models_breakdown=dict(details.get("models_breakdown", {})),
+        xai_top_tokens=list(details.get("xai_top_tokens", [])),
+        corroborating_articles=list(details.get("corroborating_articles", [])),
+        corroboration_summary=str(details.get("corroboration_summary", "")),
+        matched_fact_checks=list(details.get("matched_fact_checks", [])),
+        xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
     )
 
     report_entry = AnalysisReport(

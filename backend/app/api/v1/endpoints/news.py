@@ -278,7 +278,7 @@ async def get_article_detail(
     )
     similar_articles = sim_res.scalars().all()
 
-    # Генерація розгорнутого звіту XAI через конвеєр Trust Score V3
+    # Генерація розгорнутого звіту XAI через конвеєр Trust Score V4 (pgvector + Dual-RoBERTa)
     from app.services.ingestion import calculate_multi_factor_trust
 
     calc_score, calc_verdict, details = await calculate_multi_factor_trust(
@@ -287,6 +287,7 @@ async def get_article_detail(
         source=None,
         db=db,
         source_domain_override=article.domain,
+        exclude_article_id=article.id,
     )
 
     breakdown = TrustScoreBreakdown(
@@ -299,6 +300,12 @@ async def get_article_detail(
         fact_check_flag=bool(details.get("factcheck_debunked", False)),
         manipulation_markers=list(details.get("manipulation_markers", [])),
         explanation=str(details.get("explanation") or details.get("reason") or ""),
+        models_breakdown=dict(details.get("models_breakdown", {})),
+        xai_top_tokens=list(details.get("xai_top_tokens", [])),
+        corroborating_articles=list(details.get("corroborating_articles", [])),
+        corroboration_summary=str(details.get("corroboration_summary", "")),
+        matched_fact_checks=list(details.get("matched_fact_checks", [])),
+        xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
     )
 
     article_read = ArticleRead.model_validate(article)
@@ -311,3 +318,58 @@ async def get_article_detail(
         "similar_articles": [ArticleRead.model_validate(s) for s in similar_articles]
     }
     return ArticleDetail(**detail_dict)
+
+
+@router.get("/{article_id}/related")
+async def get_related_cross_verified_articles(
+    article_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Пошук семантично близьких публікацій з інших незалежних ЗМІ у pgvector (Cosine Distance <=>)
+    для крос-верифікації події.
+    """
+    from app.services.cross_verification_service import cross_verification_service
+    from app.services.reputation_service import reputation_service
+
+    res = await db.execute(select(Article).where(Article.id == article_id))
+    article = res.scalar_one_or_none()
+    if not article:
+        raise HTTPException(status_code=404, detail=f"Новину з ID {article_id} не знайдено")
+
+    rep = reputation_service.get_reputation(article.domain)
+    corr_res = await cross_verification_service.corroborate_article(
+        title=article.title,
+        text_body=article.full_text or article.summary or "",
+        source_domain=article.domain,
+        is_whitelisted=rep.is_whitelisted,
+        ml_authenticity_score=article.trust_score or 85.0,
+        stylometry_score=85.0,
+        db=db,
+        exclude_article_id=article.id,
+        max_related=6,
+    )
+    items = [
+        {
+            "id": a.id,
+            "title": a.title,
+            "url": a.url,
+            "source_name": a.source_name,
+            "domain": a.domain,
+            "trust_score": a.trust_score,
+            "verdict": a.verdict,
+            "similarity": a.similarity,
+            "is_whitelisted": a.is_whitelisted_source,
+            "published_at": a.published_at.isoformat() if a.published_at else None,
+        }
+        for a in corr_res.related_articles
+    ]
+    return {
+        "corroboration_score": corr_res.corroboration_score,
+        "independent_sources_count": corr_res.independent_sources_count,
+        "whitelisted_sources_count": corr_res.whitelisted_sources_count,
+        "corroboration_status": corr_res.corroboration_status,
+        "explanation": corr_res.summary,
+        "summary": corr_res.summary,
+        "corroborating_articles": items,
+    }
