@@ -126,6 +126,7 @@ class CrossVerificationService:
             if "postgresql" in dialect:
                 try:
                     vec_literal = embedding_service.to_pgvector_str(query_vec)
+                    excl_val = int(exclude_article_id) if exclude_article_id is not None else -1
                     sql = text(
                         """
                         SELECT id, title, url, source_name, domain, category,
@@ -133,7 +134,7 @@ class CrossVerificationService:
                                1 - (embedding <=> CAST(:vec AS vector)) AS vec_sim
                         FROM articles
                         WHERE embedding IS NOT NULL
-                          AND (:excl_id IS NULL OR id != :excl_id)
+                          AND id != :excl_id
                         ORDER BY embedding <=> CAST(:vec AS vector) ASC
                         LIMIT 35
                         """
@@ -142,7 +143,7 @@ class CrossVerificationService:
                         sql,
                         {
                             "vec": vec_literal,
-                            "excl_id": exclude_article_id,
+                            "excl_id": excl_val,
                         },
                     )
                     rows = res.mappings().all()
@@ -172,6 +173,10 @@ class CrossVerificationService:
                         )
                 except Exception as e:
                     logger.debug("Перехід на резервний семантичний пошук (pgvector ще не заповнено): %s", e)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
             # 2. Резервний пошук (для SQLite у тестах або якщо векторні стовпці порожні)
             if not candidates:
@@ -207,6 +212,10 @@ class CrossVerificationService:
                         )
                 except Exception as e:
                     logger.warning("Помилка резервного пошуку крос-верифікації: %s", e)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
         # Фільтруємо та дедуплікуємо за доменом, щоб кожне незалежне медіа враховувалося один раз
         candidates.sort(key=lambda x: x["similarity"], reverse=True)
@@ -373,6 +382,10 @@ class CrossVerificationService:
                         )
             except Exception as e:
                 logger.debug("Резервний пошук у fact_check_claims: %s", e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
 
         if not hits:
             try:
@@ -397,6 +410,10 @@ class CrossVerificationService:
                         )
             except Exception as e:
                 logger.debug("Помилка резервного пошуку fact_check_claims: %s", e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
 
         hits.sort(key=lambda x: x.similarity, reverse=True)
         return hits[:top_k]
