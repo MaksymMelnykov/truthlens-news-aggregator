@@ -30,7 +30,7 @@ jobs:
       - name: Install backend dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi pydantic pydantic-settings python-dotenv sqlalchemy asyncpg psycopg2-binary aiosqlite feedparser trafilatura lxml_html_clean beautifulsoup4 httpx APScheduler scikit-learn joblib matplotlib numpy
+          pip install fastapi pydantic pydantic-settings email-validator python-dotenv "sqlalchemy[asyncio]" greenlet asyncpg psycopg2-binary aiosqlite feedparser trafilatura lxml_html_clean beautifulsoup4 httpx APScheduler scikit-learn joblib matplotlib numpy pyjwt "passlib[bcrypt]" bcrypt
 
       - name: Run 24/7 RSS News & FactCheck Sync into Cloud PostgreSQL
         env:
