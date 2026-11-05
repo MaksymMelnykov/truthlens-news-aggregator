@@ -38,7 +38,7 @@ htmlcov/
 # Local databases & uploads
 *.sqlite3
 *.db
-data/
+/data/
 logs/
 models_cache/
 ml/models/*.zip
