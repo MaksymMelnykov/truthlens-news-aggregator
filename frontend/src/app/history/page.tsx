@@ -182,6 +182,23 @@ export default function HistoryPage() {
 
               <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-zinc-800">
                 <TrustBadge score={item.trust_score} verdict={item.verdict} size="sm" />
+                {item.analysis_id ? (
+                  <Link
+                    href={`/verify?report_id=${item.analysis_id}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-cyan-500 hover:text-zinc-950 text-zinc-200 text-xs font-semibold transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Переглянути розбір</span>
+                  </Link>
+                ) : item.query_type === "url" ? (
+                  <Link
+                    href={`/verify?url=${encodeURIComponent(item.query_preview)}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-cyan-500 hover:text-zinc-950 text-zinc-200 text-xs font-semibold transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Перевірити знову</span>
+                  </Link>
+                ) : null}
                 <button
                   onClick={() => deleteItem(item.id)}
                   className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"

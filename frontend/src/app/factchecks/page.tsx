@@ -53,24 +53,55 @@ export default function FactChecksPage() {
   const [checkText, setCheckText] = useState("");
   const [isChecking, setIsChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<any | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("щойно");
 
-  const fetchClaims = async () => {
-    setLoading(true);
+  const fetchClaims = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/factchecks?page_size=200&limit=200`);
+      const res = await fetch(`${apiUrl}/factchecks?page_size=200&limit=200`, {
+        cache: "no-store",
+      });
       if (res.ok) {
         const data = await res.json();
         setClaims(data.items || []);
+        const now = new Date();
+        setLastRefreshedAt(
+          `${now.getHours().toString().padStart(2, "0")}:${now
+            .getMinutes()
+            .toString()
+            .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`
+        );
       }
     } catch (err) {
       console.error("Помилка завантаження фактчеків:", err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchClaims();
+    fetchClaims(true);
+  }, [apiUrl]);
+
+  // Фонове автоматичне оновлення бази фактчеків кожні 25 секунд без перезавантаження сторінки
+  useEffect(() => {
+    const timer = setInterval(() => {
+      fetchClaims(false);
+    }, 25000);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        fetchClaims(false);
+      }
+    };
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+    };
   }, [apiUrl]);
 
 
@@ -185,10 +216,10 @@ export default function FactChecksPage() {
             <div className="flex items-center gap-3">
               <div
                 className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-zinc-900/90 border border-zinc-800 text-xs font-medium text-zinc-300 shadow-sm"
-                title="Планова синхронізація з базами StopFake та VoxCheck виконується автоматично кожні 5 хвилин"
+                title="Сторінка автоматично підтягує нові фактчеки кожні 25 секунд без перезавантаження"
               >
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Автосинхронізація (кожні 5 хв)</span>
+                <span>Живе оновлення ({lastRefreshedAt})</span>
               </div>
             </div>
           </div>

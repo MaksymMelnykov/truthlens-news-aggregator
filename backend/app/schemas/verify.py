@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 from .news import TrustScoreBreakdown
@@ -14,7 +15,11 @@ class VerifyUrlRequest(BaseModel):
 
 
 class VerificationResultResponse(BaseModel):
+    analysis_id: Optional[int] = None
     title: Optional[str] = None
     extracted_text_preview: str
     analyzed_domain: Optional[str] = None
+    source_url: Optional[str] = None
+    query_type: str = "url"
+    created_at: Optional[datetime] = None
     trust_breakdown: TrustScoreBreakdown

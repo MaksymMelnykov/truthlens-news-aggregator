@@ -570,6 +570,10 @@ async def calculate_multi_factor_trust(
     if not is_whitelisted and sty_res.overall_penalty >= 55.0:
         trust_score = min(trust_score, 38.0)
 
+    # Якщо анонімний/невідомий текст має вкрай низьку автентичність за нейромережею (< 30%) і 0 підтверджень у ЗМІ
+    if not has_known_domain and effective_ml_score < 30.0 and not corroborating_articles_dicts:
+        trust_score = min(trust_score, 39.0)
+
     trust_score = max(10.0, min(100.0, round(trust_score, 1)))
 
     if trust_score >= 80.0:
@@ -579,57 +583,81 @@ async def calculate_multi_factor_trust(
     else:
         verdict = "High Risk"
 
+    # 6. Побудова зрозумілого для читачів будь-якого віку XAI-пояснення та 5 кроків перевірки
+    human_ml_summary = (
+        f"Штучний інтелект підтверджує, що текст написано як справжню новину з фактами ({effective_ml_score:.0f}% правдивості)."
+        if effective_ml_score >= 75
+        else (
+            f"Штучний інтелект радить поставитися з увагою ({effective_ml_score:.0f}%): деякі фрази схожі на оціночні судження або переказ чуток."
+            if effective_ml_score >= 50
+            else f"Увага: штучний інтелект виявив ознаки вигадки, пропаганди або неперевіреного вкиду (рівень правдивості тексту лише {effective_ml_score:.0f}%)."
+        )
+    )
+
+    human_stylometry_summary = (
+        f"Текст написано спокійно, без кричущих заголовків («ШОК!», «ТЕРМІНОВО!») чи залякування читачів ({sty_res.stylometry_trust_index:.0f}%)."
+        if sty_res.stylometry_trust_index >= 80
+        else f"Виявлено емоційний тиск або клікбейт ({sty_res.summary_verdict}, спокій мови: {sty_res.stylometry_trust_index:.0f}%)."
+    )
+
     explanation_parts = []
     if has_known_domain:
-        explanation_parts.append(f"Джерело «{rep.name}» ({rep.imi_category}, рейтинг {source_rating:.0f}%).")
-    explanation_parts.append(f"Стилометрія: {sty_res.summary_verdict} ({sty_res.stylometry_trust_index:.0f}%).")
-    explanation_parts.append(ml_res.explanation_summary)
+        explanation_parts.append(
+            f"Видання «{rep.name}» ({rep.imi_category}) має високий рівень надійності ({source_rating:.0f}%)."
+            if source_rating >= 80
+            else f"Джерело «{rep.name}» ({rep.imi_category}, рейтинг надійності {source_rating:.0f}%)."
+        )
+    explanation_parts.append(human_stylometry_summary)
+    explanation_parts.append(human_ml_summary)
     if corroboration_summary:
         explanation_parts.append(corroboration_summary)
 
-    # 6. Побудова покрокового XAI-аудиту (5 факторів)
     xai_steps = [
         {
             "step": 1,
-            "component": "Репутація джерела (ІМІ Моніторинг)",
+            "component": "Надійність сайту (Хто опублікував новину)",
             "score": round(source_rating, 1),
             "status": "good" if source_rating >= 80 else ("warning" if source_rating >= 55 else "danger"),
             "summary": (
-                f"Джерело «{rep.name}» ({rep.imi_category}, індекс {source_rating:.0f}%)."
-                if has_known_domain
-                else f"Домен не вказано або відсутній у реєстрі ІМІ — застосовано нейтральний базовий рейтинг ({source_rating:.0f}%)."
+                f"Видання «{rep.name}» ({rep.imi_category}, довіра {source_rating:.0f}%). Журналісти цього медіа перевіряють інформацію перед публікацією."
+                if has_known_domain and source_rating >= 80
+                else (
+                    f"Джерело «{rep.name}» ({rep.imi_category}, рейтинг {source_rating:.0f}%)."
+                    if has_known_domain
+                    else f"Ви перевіряєте окремий текст без вказання відомого сайту, тому оцінюється насамперед зміст і тон матеріалу."
+                )
             ),
         },
         {
             "step": 2,
-            "component": "Стилометричний та лінгвістичний аналіз",
+            "component": "Спокійний тон та відсутність маніпуляцій емоціями",
             "score": round(sty_res.stylometry_trust_index, 1),
             "status": "good" if sty_res.stylometry_trust_index >= 80 else ("warning" if sty_res.stylometry_trust_index >= 55 else "danger"),
-            "summary": f"{sty_res.summary_verdict}. Штраф клікбейту: {sty_res.clickbait_score:.0f}%, маніпуляцій: {sty_res.manipulation_score:.0f}%.",
+            "summary": human_stylometry_summary,
         },
         {
             "step": 3,
-            "component": "Нейромережевий ансамбль (ukr-roberta + xlm-roberta)",
+            "component": "Перевірка тексту штучним інтелектом на правдивість",
             "score": round(effective_ml_score, 1),
             "status": "good" if effective_ml_score >= 75 else ("warning" if effective_ml_score >= 50 else "danger"),
-            "summary": ml_res.explanation_summary,
+            "summary": human_ml_summary,
         },
         {
             "step": 4,
-            "component": "Крос-верифікація між ЗМІ (pgvector)",
+            "component": "Чи пишуть про цю подію інші незалежні ЗМІ",
             "score": round(corroboration_score, 1),
             "status": "good" if corroboration_score >= 78 else ("warning" if corroboration_score >= 50 else "danger"),
             "summary": corroboration_summary,
         },
         {
             "step": 5,
-            "component": "Семантична база фактчеків (StopFake / VoxCheck)",
+            "component": "Звірка зі списком вже викритих фейків (StopFake / VoxCheck)",
             "score": 100.0 if not matched_fact_checks_dicts else 65.0,
             "status": "good" if not matched_fact_checks_dicts else "warning",
             "summary": (
-                "Прямих або семантичних збігів із відомими фейками у реєстрах StopFake та VoxCheck не виявлено."
+                "Ми звірили цей матеріал із базою офіційно спростованих фейків StopFake та VoxCheck — збігів з неправдою не знайдено."
                 if not matched_fact_checks_dicts
-                else f"Знайдено {len(matched_fact_checks_dicts)} тематично споріднених записів у базі фактчеків (макс. близькість {int(matched_fact_checks_dicts[0]['similarity'] * 100)}%)."
+                else f"Знайдено {len(matched_fact_checks_dicts)} схожих розборів у базі фактчекерів (схожість теми {int(matched_fact_checks_dicts[0]['similarity'] * 100)}%) — радимо ознайомитися нижче."
             ),
         },
     ]

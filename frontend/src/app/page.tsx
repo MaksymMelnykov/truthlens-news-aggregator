@@ -104,13 +104,21 @@ export default function HomePage() {
       const token = typeof window !== "undefined" ? localStorage.getItem("truthlens_token") : null;
       if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      const res = await fetch(`${apiUrl}/news?${params.toString()}`, { headers });
+      const res = await fetch(`${apiUrl}/news?${params.toString()}`, {
+        headers,
+        cache: "no-store",
+      });
       if (res.ok) {
         const data: NewsFeedResponse = await res.json();
         setArticles(data.items);
         setTotal(data.total);
         const now = new Date();
-        setLastRefreshedAt(`${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`);
+        setLastRefreshedAt(
+          `${now.getHours().toString().padStart(2, "0")}:${now
+            .getMinutes()
+            .toString()
+            .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`
+        );
       }
     } catch (e) {
       console.error("Помилка завантаження новин", e);
@@ -123,13 +131,26 @@ export default function HomePage() {
     fetchNews(true, currentPage, pageSize);
   }, [currentPage, pageSize, feedScope, category, verdict, timeRange, sortBy, onlyPersonalized, activeSearch]);
 
-  // Фонове автоматичне оновлення стрічки новин щохвилини без зриву сторінки
+  // Фонове автоматичне оновлення стрічки новин кожні 25 секунд + при поверненні на вкладку без перезавантаження сторінки
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => {
       fetchNews(false, currentPage, pageSize);
-    }, 60000);
-    return () => clearInterval(timer);
+    }, 25000);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        fetchNews(false, currentPage, pageSize);
+      }
+    };
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+    };
   }, [autoRefresh, currentPage, pageSize, feedScope, category, verdict, timeRange, sortBy, onlyPersonalized, activeSearch]);
 
   const handlePageChange = (newPage: number) => {

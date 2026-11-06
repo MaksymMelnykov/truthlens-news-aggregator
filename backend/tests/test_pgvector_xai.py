@@ -111,3 +111,37 @@ async def test_news_detail_and_related_cross_verification_endpoints():
         assert "corroboration_score" in rel_data
         assert "corroborating_articles" in rel_data
         assert "explanation" in rel_data
+
+
+@pytest.mark.asyncio
+async def test_verify_url_matches_feed_score_and_reports_history():
+    """
+    Перевіряє:
+    1) Що перевірка статті за URL, яка вже є в стрічці новин, повертає 100% ідентичний TrustScore.
+    2) Що збережені перевірки доступні через GET /api/v1/verify/reports та GET /api/v1/verify/reports/{id}.
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        feed_res = await client.get("/api/v1/news?page=1&page_size=5")
+        assert feed_res.status_code == 200
+        article = feed_res.json()["items"][0]
+        feed_score = round(float(article["trust_score"]), 1)
+        article_url = article["url"]
+
+        verify_res = await client.post("/api/v1/verify/url", json={"url": article_url})
+        assert verify_res.status_code == 200
+        v_data = verify_res.json()
+        assert round(float(v_data["trust_breakdown"]["score"]), 1) == feed_score
+        assert v_data["analysis_id"] is not None
+
+        report_id = v_data["analysis_id"]
+        reports_res = await client.get("/api/v1/verify/reports?limit=10")
+        assert reports_res.status_code == 200
+        reports_list = reports_res.json()
+        assert any(r["id"] == report_id for r in reports_list)
+
+        single_report_res = await client.get(f"/api/v1/verify/reports/{report_id}")
+        assert single_report_res.status_code == 200
+        single_report = single_report_res.json()
+        assert single_report["analysis_id"] == report_id
+        assert round(float(single_report["trust_breakdown"]["score"]), 1) == feed_score
+

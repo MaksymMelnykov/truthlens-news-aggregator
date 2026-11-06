@@ -89,9 +89,10 @@ class CrossVerificationService:
         if not stems_a or not stems_b:
             return 0.0
         inter = len(stems_a & stems_b)
-        denom = min(len(stems_a), len(stems_b))
-        if denom == 0:
+        # Для підтвердження тієї самої події потрібно щонайменше 2 спільних змістовних корені
+        if inter < 2:
             return 0.0
+        denom = max(3, min(len(stems_a), len(stems_b)))
         overlap = inter / float(denom)
         jaccard = inter / float(len(stems_a | stems_b))
         return round(0.65 * overlap + 0.35 * jaccard, 4)
@@ -223,8 +224,8 @@ class CrossVerificationService:
         matched_items: List[CorroboratingArticleItem] = []
 
         for c in candidates:
-            # Поріг семантичної спорідненості події або спільних ключових сутностей
-            if c["similarity"] < 0.32 and c["lex_sim"] < 0.22:
+            # Поріг семантичної спорідненості події та спільних ключових сутностей (щонайменше 2 спільні корені)
+            if c["lex_sim"] < 0.22 or c["similarity"] < 0.38:
                 continue
             dom = c["domain"]
             if dom in seen_domains:
