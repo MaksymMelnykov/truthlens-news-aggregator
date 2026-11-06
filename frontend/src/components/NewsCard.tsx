@@ -3,14 +3,11 @@
 import React, { useState, useEffect } from "react";
 import { Article, ArticleDetail } from "@/types";
 import { TrustBadge } from "./TrustBadge";
+import { XaiReportModal } from "./XaiReportModal";
 import {
   Bookmark,
   ExternalLink,
   Fingerprint,
-  RefreshCw,
-  ChevronDown,
-  ChevronUp,
-  Search,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -242,158 +239,40 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         )}
       </div>
 
-      {/* Нижня панель: Trust Score + зрозумілий розбір */}
-      <div className="pt-3 mt-2 border-t border-zinc-800/80 space-y-3">
+      {/* Нижня панель: кнопка відкриття модального вікна XAI + Trust Score */}
+      <div className="pt-3 mt-2 border-t border-zinc-800/80">
         <div className="flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={toggleXaiPanel}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-zinc-800/80 hover:bg-zinc-800 text-cyan-300 border border-zinc-700/70 transition-colors"
-            title="Подивитися просте та зрозуміле пояснення, чому новина отримала такий рейтинг довіри"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-zinc-800/80 hover:bg-cyan-500 hover:text-zinc-950 text-cyan-300 border border-zinc-700/70 hover:border-cyan-400 transition-all"
+            title="Відкрити детальне пояснення оцінки у зручному вікні"
           >
-            <Fingerprint className="w-3.5 h-3.5 text-cyan-400" />
+            <Fingerprint className="w-3.5 h-3.5" />
             <span>Чому така оцінка?</span>
-            {showXai ? (
-              <ChevronUp className="w-3 h-3" />
-            ) : (
-              <ChevronDown className="w-3 h-3" />
-            )}
           </button>
 
           <TrustBadge score={article.trust_score} verdict={article.verdict} size="sm" />
         </div>
-
-        {/* Розгорнута панель пояснення простими словами */}
-        {showXai && (
-          <div className="p-3.5 rounded-xl bg-zinc-950/90 border border-zinc-800 space-y-3 text-xs">
-            {loadingXai ? (
-              <div className="flex items-center justify-center gap-2 py-4 text-zinc-400">
-                <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
-                <span>Готуємо зрозумілий розбір новини...</span>
-              </div>
-            ) : xaiDetail?.trust_breakdown ? (
-              <>
-                <div className="text-[11px] font-semibold text-zinc-200">
-                  Як формується довіра до цієї новини:
-                </div>
-
-                {/* Чотири зрозумілі кожному показники */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800/80 space-y-0.5">
-                    <div className="flex justify-between text-[10px] text-zinc-300">
-                      <span>Надійність сайту</span>
-                      <span className="font-mono font-bold text-emerald-400">
-                        {xaiDetail.trust_breakdown.source_reputation_score.toFixed(0)}%
-                      </span>
-                    </div>
-                    <p className="text-[9px] text-zinc-500">Чи перевірене це медіа</p>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800/80 space-y-0.5">
-                    <div className="flex justify-between text-[10px] text-zinc-300">
-                      <span>Спокійний тон</span>
-                      <span className="font-mono font-bold text-cyan-400">
-                        {xaiDetail.trust_breakdown.stylometry_score.toFixed(0)}%
-                      </span>
-                    </div>
-                    <p className="text-[9px] text-zinc-500">Без крику та залякування</p>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800/80 space-y-0.5">
-                    <div className="flex justify-between text-[10px] text-zinc-300">
-                      <span>Перевірка ШІ</span>
-                      <span className="font-mono font-bold text-indigo-400">
-                        {xaiDetail.trust_breakdown.ml_authenticity_score.toFixed(0)}%
-                      </span>
-                    </div>
-                    <p className="text-[9px] text-zinc-500">Чи схоже на правдиві факти</p>
-                  </div>
-
-                  <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800/80 space-y-0.5">
-                    <div className="flex justify-between text-[10px] text-zinc-300">
-                      <span>Інші ЗМІ</span>
-                      <span className="font-mono font-bold text-purple-400">
-                        {xaiDetail.trust_breakdown.corroboration_score.toFixed(0)}%
-                      </span>
-                    </div>
-                    <p className="text-[9px] text-zinc-500">Чи пишуть про це колеги</p>
-                  </div>
-                </div>
-
-                {/* Висновок трьох незалежних ШІ-помічників простими словами */}
-                {xaiDetail.trust_breakdown.models_breakdown &&
-                  Object.keys(xaiDetail.trust_breakdown.models_breakdown).length > 0 && (
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-zinc-400">
-                        Оцінки трьох ШІ-експертів:
-                      </span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {Object.entries(xaiDetail.trust_breakdown.models_breakdown).map(
-                          ([key, val]) => (
-                            <span
-                              key={key}
-                              className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/25 text-[10px] text-indigo-200"
-                            >
-                              {key === "ukr_roberta_base" || key === "ukr-roberta-base"
-                                ? "Український мовний ШІ"
-                                : key === "xlm_roberta_base" || key === "xlm-roberta-base"
-                                ? "Міжнародний мовний ШІ"
-                                : "Детектор фейків"}
-                              : <strong className="font-mono">{Number(val).toFixed(0)}%</strong>
-                            </span>
-                          )
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                {/* Пояснення простими словами */}
-                <div className="p-2.5 rounded-lg bg-zinc-900/90 border border-zinc-800/90">
-                  <p className="text-[11px] text-zinc-200 leading-relaxed">
-                    {xaiDetail.trust_breakdown.explanation}
-                  </p>
-                </div>
-
-                {/* Хто ще написав про цю подію */}
-                {xaiDetail.trust_breakdown.corroborating_articles &&
-                  xaiDetail.trust_breakdown.corroborating_articles.length > 0 && (
-                    <div className="space-y-1.5 pt-1 border-t border-zinc-800/80">
-                      <div className="flex items-center gap-1 text-[10px] font-semibold text-purple-300">
-                        <Search className="w-3 h-3" />
-                        <span>
-                          Хто ще написав про цю подію ({xaiDetail.trust_breakdown.corroborating_articles.length}):
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        {xaiDetail.trust_breakdown.corroborating_articles
-                          .slice(0, 3)
-                          .map((corr) => (
-                            <a
-                              key={corr.id}
-                              href={corr.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center justify-between gap-2 p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800/90 border border-zinc-800/70 transition-colors"
-                            >
-                              <span className="text-[11px] text-zinc-200 truncate">
-                                <strong className="text-purple-300">{corr.source_name}:</strong>{" "}
-                                {corr.title}
-                              </span>
-                              <span className="text-[10px] font-mono text-purple-300 flex-shrink-0">
-                                схожість {(corr.similarity * 100).toFixed(0)}%
-                              </span>
-                            </a>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-              </>
-            ) : (
-              <p className="text-zinc-400">Не вдалося завантажити пояснення.</p>
-            )}
-          </div>
-        )}
       </div>
+
+      {/* Модальне вікно XAI-розбору статті */}
+      <XaiReportModal
+        isOpen={showXai}
+        onClose={() => setShowXai(false)}
+        loading={loadingXai}
+        data={
+          xaiDetail
+            ? {
+                title: xaiDetail.title,
+                domain: xaiDetail.domain || article.domain,
+                url: xaiDetail.url || article.url,
+                published_at: xaiDetail.published_at,
+                trust_breakdown: xaiDetail.trust_breakdown,
+              }
+            : null
+        }
+      />
     </article>
   );
 };

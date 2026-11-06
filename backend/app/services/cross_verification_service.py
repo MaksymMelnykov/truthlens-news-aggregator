@@ -220,12 +220,25 @@ class CrossVerificationService:
 
         # Фільтруємо та дедуплікуємо за доменом, щоб кожне незалежне медіа враховувалося один раз
         candidates.sort(key=lambda x: x["similarity"], reverse=True)
+
+        # Нейромережеве переранжування топ-кандидатів за допомогою paraphrase-multilingual-MiniLM-L12-v2
+        for c in candidates[:10]:
+            if c["lex_sim"] >= 0.15 or c["vec_sim"] >= 0.32:
+                neural_sim = embedding_service.neural_semantic_similarity(
+                    query_combined[:450], c["title"]
+                )
+                if neural_sim is not None:
+                    c["similarity"] = round(
+                        0.45 * c["vec_sim"] + 0.30 * neural_sim + 0.25 * c["lex_sim"], 4
+                    )
+
+        candidates.sort(key=lambda x: x["similarity"], reverse=True)
         seen_domains: Set[str] = set()
         matched_items: List[CorroboratingArticleItem] = []
 
         for c in candidates:
             # Поріг семантичної спорідненості події та спільних ключових сутностей (щонайменше 2 спільні корені)
-            if c["lex_sim"] < 0.22 or c["similarity"] < 0.38:
+            if c["lex_sim"] < 0.20 or c["similarity"] < 0.38:
                 continue
             dom = c["domain"]
             if dom in seen_domains:

@@ -145,6 +145,7 @@ async def verify_custom_text(
         corroboration_score=breakdown.corroboration_score,
         fact_check_flag=breakdown.fact_check_flag,
         manipulation_markers=breakdown.manipulation_markers,
+        xai_data=breakdown.model_dump(mode="json"),
         explanation=breakdown.explanation,
     )
     db.add(report_entry)
@@ -293,6 +294,7 @@ async def verify_custom_url(
         corroboration_score=breakdown.corroboration_score,
         fact_check_flag=breakdown.fact_check_flag,
         manipulation_markers=breakdown.manipulation_markers,
+        xai_data=breakdown.model_dump(mode="json"),
         explanation=breakdown.explanation,
     )
     db.add(report_entry)
@@ -329,7 +331,10 @@ async def _reconstruct_report_response(
     report: AnalysisReport,
     db: AsyncSession,
 ) -> VerificationResultResponse:
-    """Відновлює повний розбір VerificationResultResponse із збереженого AnalysisReport."""
+    """
+    Повертає збережений розбір VerificationResultResponse із AnalysisReport
+    без повторного запуску аналізу з нуля (використовує збережений знімок xai_data).
+    """
     raw_input = report.input_text or ""
     if "\n\n" in raw_input:
         parts = raw_input.split("\n\n", 1)
@@ -341,32 +346,41 @@ async def _reconstruct_report_response(
         body_str = raw_input
 
     domain_str = reputation_service.normalize_domain(report.url or "")
-    _, _, details = await calculate_multi_factor_trust(
-        title=title_str,
-        text=body_str or title_str,
-        source=None,
-        db=db,
-        source_domain_override=domain_str,
-        exclude_article_id=report.article_id,
-    )
 
-    breakdown = TrustScoreBreakdown(
-        score=round(float(report.trust_score), 1),
-        verdict=str(report.verdict),
-        stylometry_score=round(float(report.stylometry_score), 1),
-        source_reputation_score=round(float(report.source_reputation_score), 1),
-        ml_authenticity_score=round(float(report.ml_authenticity_score), 1),
-        corroboration_score=round(float(report.corroboration_score), 1),
-        fact_check_flag=bool(report.fact_check_flag),
-        manipulation_markers=list(report.manipulation_markers or details.get("manipulation_markers", [])),
-        explanation=str(report.explanation or details.get("explanation") or ""),
-        models_breakdown=dict(details.get("models_breakdown", {})),
-        xai_top_tokens=list(details.get("xai_top_tokens", [])),
-        corroborating_articles=list(details.get("corroborating_articles", [])),
-        corroboration_summary=str(details.get("corroboration_summary", "")),
-        matched_fact_checks=list(details.get("matched_fact_checks", [])),
-        xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
-    )
+    # Якщо повний XAI-знімок вже збережений у БД — повертаємо його миттєво без повторного аналізу
+    if report.xai_data and isinstance(report.xai_data, dict) and report.xai_data.get("xai_reasoning_steps"):
+        breakdown = TrustScoreBreakdown(**report.xai_data)
+    else:
+        _, _, details = await calculate_multi_factor_trust(
+            title=title_str,
+            text=body_str or title_str,
+            source=None,
+            db=db,
+            source_domain_override=domain_str,
+            exclude_article_id=report.article_id,
+        )
+        breakdown = TrustScoreBreakdown(
+            score=round(float(report.trust_score), 1),
+            verdict=str(report.verdict),
+            stylometry_score=round(float(report.stylometry_score), 1),
+            source_reputation_score=round(float(report.source_reputation_score), 1),
+            ml_authenticity_score=round(float(report.ml_authenticity_score), 1),
+            corroboration_score=round(float(report.corroboration_score), 1),
+            fact_check_flag=bool(report.fact_check_flag),
+            manipulation_markers=list(report.manipulation_markers or details.get("manipulation_markers", [])),
+            explanation=str(report.explanation or details.get("explanation") or ""),
+            models_breakdown=dict(details.get("models_breakdown", {})),
+            xai_top_tokens=list(details.get("xai_top_tokens", [])),
+            corroborating_articles=list(details.get("corroborating_articles", [])),
+            corroboration_summary=str(details.get("corroboration_summary", "")),
+            matched_fact_checks=list(details.get("matched_fact_checks", [])),
+            xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
+        )
+        try:
+            report.xai_data = breakdown.model_dump(mode="json")
+            await db.commit()
+        except Exception:
+            await db.rollback()
 
     preview = body_str[:260] + "..." if len(body_str) > 260 else body_str
     return VerificationResultResponse(

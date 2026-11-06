@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { HistoryItem } from "@/types";
 import { TrustBadge } from "@/components/TrustBadge";
+import { XaiReportModal, XaiModalData } from "@/components/XaiReportModal";
 import {
   History,
   Trash2,
@@ -13,13 +14,20 @@ import {
   LogIn,
   FileText,
   Globe,
-  ExternalLink,
+  Eye,
 } from "lucide-react";
 
 export default function HistoryPage() {
   const { user, token, apiUrl } = useAuth();
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [filterType, setFilterType] = useState<"all" | "url" | "text">("all");
+
+  // Стан для модального вікна перегляду збереженого розбору
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalData, setModalData] = useState<XaiModalData | null>(null);
 
   const fetchHistory = async () => {
     if (!token) {
@@ -45,6 +53,41 @@ export default function HistoryPage() {
   useEffect(() => {
     fetchHistory();
   }, [token]);
+
+  const openSavedReportModal = async (item: HistoryItem) => {
+    setModalOpen(true);
+    setModalError(null);
+    setModalData(null);
+
+    if (!item.analysis_id) {
+      setModalError("Для цього старого запису звіт не збережено.");
+      return;
+    }
+
+    setModalLoading(true);
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const res = await fetch(`${apiUrl}/verify/reports/${item.analysis_id}`, {
+        headers,
+      });
+      if (!res.ok) {
+        throw new Error("Не вдалося завантажити збережений звіт перевірки.");
+      }
+      const report = await res.json();
+      setModalData({
+        title: report.title || item.query_preview,
+        domain: report.analyzed_domain,
+        url: report.source_url,
+        published_at: report.created_at,
+        trust_breakdown: report.trust_breakdown,
+      });
+    } catch (err: any) {
+      setModalError(err.message || "Помилка відкриття збереженого звіту.");
+    } finally {
+      setModalLoading(false);
+    }
+  };
 
   const deleteItem = async (id: number) => {
     if (!token) return;
@@ -76,13 +119,20 @@ export default function HistoryPage() {
     }
   };
 
+  const filteredItems = historyItems.filter((it) => {
+    if (filterType === "all") return true;
+    return it.query_type === filterType;
+  });
+
   if (!user && !isLoading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-20 text-center space-y-4">
         <div className="w-12 h-12 rounded-2xl bg-zinc-900 border border-zinc-800 mx-auto flex items-center justify-center text-zinc-500">
           <History className="w-6 h-6" />
         </div>
-        <h2 className="text-xl font-bold text-zinc-200">Історія фактчекінгу доступна тільки для авторизованих користувачів</h2>
+        <h2 className="text-xl font-bold text-zinc-200">
+          Історія фактчекінгу доступна тільки для авторизованих користувачів
+        </h2>
         <p className="text-sm text-zinc-400 max-w-md mx-auto">
           Увійдіть у свій акаунт, щоб зберігати та переглядати результати всіх перевірених статей та посилань.
         </p>
@@ -101,8 +151,8 @@ export default function HistoryPage() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      {/* Заголовок */}
-      <div className="flex items-center justify-between border-b border-zinc-800/80 pb-4">
+      {/* Заголовок та фільтри */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-zinc-800/80 pb-4">
         <div className="flex items-center gap-3">
           <Link
             href="/"
@@ -117,20 +167,60 @@ export default function HistoryPage() {
               Особиста історія перевірок
             </h1>
             <p className="text-xs text-zinc-400">
-              Хронологія ваших запитів на виявлення дезінформації ({historyItems.length})
+              Натисніть «Переглянути розбір», щоб миттєво відкрити збережений результат у вікні ({historyItems.length})
             </p>
           </div>
         </div>
 
-        {historyItems.length > 0 && (
-          <button
-            onClick={clearAll}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-rose-400 border border-rose-500/20 hover:bg-rose-500/10 transition-colors"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Очистити все
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {historyItems.length > 0 && (
+            <div className="inline-flex p-1 rounded-xl bg-zinc-900 border border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setFilterType("all")}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  filterType === "all"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                Всі ({historyItems.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterType("url")}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  filterType === "url"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                За посиланням
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterType("text")}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  filterType === "text"
+                    ? "bg-zinc-800 text-white"
+                    : "text-zinc-400 hover:text-zinc-200"
+                }`}
+              >
+                За текстом
+              </button>
+            </div>
+          )}
+
+          {historyItems.length > 0 && (
+            <button
+              onClick={clearAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium text-rose-400 border border-rose-500/20 hover:bg-rose-500/10 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Очистити все
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Список записів історії */}
@@ -139,7 +229,7 @@ export default function HistoryPage() {
           <RefreshCw className="w-8 h-8 animate-spin text-cyan-500" />
           <p className="text-sm">Завантаження історії...</p>
         </div>
-      ) : historyItems.length === 0 ? (
+      ) : filteredItems.length === 0 ? (
         <div className="text-center py-20 border border-dashed border-zinc-800 rounded-3xl p-8 space-y-3">
           <History className="w-10 h-10 text-zinc-600 mx-auto" />
           <h4 className="text-base font-semibold text-zinc-300">Історія порожня</h4>
@@ -155,7 +245,7 @@ export default function HistoryPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {historyItems.map((item) => (
+          {filteredItems.map((item) => (
             <div
               key={item.id}
               className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-900/90 transition-colors"
@@ -173,7 +263,9 @@ export default function HistoryPage() {
                     {item.query_preview}
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-zinc-500 font-mono">
-                    <span className="uppercase">{item.query_type}</span>
+                    <span className="uppercase">
+                      {item.query_type === "url" ? "Посилання" : "Власний текст"}
+                    </span>
                     <span>•</span>
                     <span>{new Date(item.created_at).toLocaleString("uk-UA")}</span>
                   </div>
@@ -182,23 +274,16 @@ export default function HistoryPage() {
 
               <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-zinc-800">
                 <TrustBadge score={item.trust_score} verdict={item.verdict} size="sm" />
-                {item.analysis_id ? (
-                  <Link
-                    href={`/verify?report_id=${item.analysis_id}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-cyan-500 hover:text-zinc-950 text-zinc-200 text-xs font-semibold transition-colors"
+                {item.analysis_id && (
+                  <button
+                    type="button"
+                    onClick={() => openSavedReportModal(item)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-zinc-800 hover:bg-cyan-500 hover:text-zinc-950 text-zinc-200 text-xs font-semibold transition-colors"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <Eye className="w-3.5 h-3.5" />
                     <span>Переглянути розбір</span>
-                  </Link>
-                ) : item.query_type === "url" ? (
-                  <Link
-                    href={`/verify?url=${encodeURIComponent(item.query_preview)}`}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-cyan-500 hover:text-zinc-950 text-zinc-200 text-xs font-semibold transition-colors"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    <span>Перевірити знову</span>
-                  </Link>
-                ) : null}
+                  </button>
+                )}
                 <button
                   onClick={() => deleteItem(item.id)}
                   className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
@@ -211,6 +296,15 @@ export default function HistoryPage() {
           ))}
         </div>
       )}
+
+      {/* Модальне вікно зі збереженим XAI-розбором */}
+      <XaiReportModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        loading={modalLoading}
+        data={modalData}
+        error={modalError}
+      />
     </div>
   );
 }

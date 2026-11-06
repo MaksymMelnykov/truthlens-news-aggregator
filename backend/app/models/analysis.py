@@ -26,6 +26,7 @@ class AnalysisReport(Base):
     corroboration_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     fact_check_flag: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     manipulation_markers: Mapped[Optional[list]] = mapped_column(JSON, default=list, nullable=True)
+    xai_data: Mapped[Optional[dict]] = mapped_column(JSON, default=dict, nullable=True)
     explanation: Mapped[str] = mapped_column(Text, nullable=False)
     
     created_at: Mapped[datetime] = mapped_column(

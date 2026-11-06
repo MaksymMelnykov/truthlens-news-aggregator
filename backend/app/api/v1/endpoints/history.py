@@ -5,6 +5,7 @@ from sqlalchemy import select, delete
 from app.db.session import get_db
 from app.models.user import User
 from app.models.history import VerificationHistory
+from app.models.analysis import AnalysisReport
 from app.schemas.history import HistoryItemRead
 from app.api.deps import get_current_user
 
@@ -25,7 +26,36 @@ async def get_user_history(
         .limit(100)
     )
     res = await db.execute(stmt)
-    items = res.scalars().all()
+    items = list(res.scalars().all())
+
+    # Автоматично прив'язуємо старі записи історії без analysis_id до відповідних звітів AnalysisReport
+    missing_items = [it for it in items if it.analysis_id is None]
+    if missing_items:
+        rep_stmt = (
+            select(AnalysisReport)
+            .where(AnalysisReport.user_id == current_user.id)
+            .order_by(AnalysisReport.created_at.desc())
+            .limit(150)
+        )
+        reports = list((await db.execute(rep_stmt)).scalars().all())
+        updated = False
+        for it in missing_items:
+            preview_clean = (it.query_preview or "").strip().lower()[:60]
+            for rep in reports:
+                rep_text = (rep.input_text or "").strip().lower()
+                rep_url = (rep.url or "").strip().lower()
+                if (preview_clean and (preview_clean in rep_text or preview_clean in rep_url)) or (
+                    abs((it.trust_score or 0) - (rep.trust_score or 0)) < 0.2
+                ):
+                    it.analysis_id = rep.id
+                    updated = True
+                    break
+        if updated:
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+
     return [HistoryItemRead.model_validate(item) for item in items]
 
 
