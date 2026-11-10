@@ -16,7 +16,7 @@ import {
   ExternalLink,
   RefreshCw,
   Globe,
-  BookOpen,
+  FileText,
 } from "lucide-react";
 
 export interface XaiModalData {
@@ -110,7 +110,7 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                   onClick={onClose}
                   className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500 hover:text-zinc-950 font-semibold transition-colors"
                 >
-                  <BookOpen className="w-3 h-3" />
+                  <FileText className="w-3 h-3" />
                   <span>Повний текст і підсвітка ШІ →</span>
                 </Link>
               )}

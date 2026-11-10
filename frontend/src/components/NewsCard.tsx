@@ -9,7 +9,7 @@ import {
   Bookmark,
   ExternalLink,
   Fingerprint,
-  BookOpen,
+  FileText,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -260,7 +260,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 hover:border-zinc-700 transition-all"
               title="Відкрити повний текст статті з підсвічуванням фраз і токенів ШІ"
             >
-              <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+              <FileText className="w-3.5 h-3.5 text-indigo-400" />
               <span>Повний розбір</span>
             </Link>
           </div>

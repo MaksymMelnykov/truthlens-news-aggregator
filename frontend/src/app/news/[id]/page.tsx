@@ -19,12 +19,10 @@ import {
   PieChart,
   Search,
   Globe,
-  Calendar,
-  User as UserIcon,
+  Clock,
   Eye,
   RefreshCw,
-  Layers,
-  BookOpen,
+  FileText,
 } from "lucide-react";
 
 type HighlightMode = "all" | "fake" | "real" | "none";
@@ -352,12 +350,11 @@ export default function ArticleDetailPage() {
 
             <div className="flex flex-wrap items-center gap-4 text-xs text-zinc-400 pt-1">
               <span className="inline-flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-zinc-500" />
+                <Clock className="w-3.5 h-3.5 text-zinc-500" />
                 {formattedDate}
               </span>
               {article.author && (
                 <span className="inline-flex items-center gap-1.5">
-                  <UserIcon className="w-3.5 h-3.5 text-zinc-500" />
                   Автор: <strong className="text-zinc-300">{article.author}</strong>
                 </span>
               )}
@@ -391,7 +388,7 @@ export default function ArticleDetailPage() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
               <div className="space-y-1">
                 <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                  <BookOpen className="w-5 h-5 text-cyan-400" />
+                  <FileText className="w-5 h-5 text-cyan-400" />
                   Повний текст статті з підсвічуванням ШІ
                 </h2>
                 <p className="text-xs text-zinc-400">
@@ -567,7 +564,7 @@ export default function ArticleDetailPage() {
           <section className="rounded-3xl border border-zinc-800 bg-zinc-900/70 p-6 space-y-5">
             <div className="space-y-1">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
-                <Layers className="w-5 h-5 text-cyan-400" />
+                <ShieldCheck className="w-5 h-5 text-cyan-400" />
                 5 факторів оцінки Trust Score V4
               </h2>
               <p className="text-xs text-zinc-400">
