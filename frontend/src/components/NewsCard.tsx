@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { Article, ArticleDetail } from "@/types";
 import { TrustBadge } from "./TrustBadge";
 import { XaiReportModal } from "./XaiReportModal";
@@ -8,6 +9,7 @@ import {
   Bookmark,
   ExternalLink,
   Fingerprint,
+  BookOpen,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -239,18 +241,29 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         )}
       </div>
 
-      {/* Нижня панель: кнопка відкриття модального вікна XAI + Trust Score */}
+      {/* Нижня панель: кнопка відкриття модального вікна XAI + перехід на /news/[id] + Trust Score */}
       <div className="pt-3 mt-2 border-t border-zinc-800/80">
         <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={toggleXaiPanel}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold bg-zinc-800/80 hover:bg-cyan-500 hover:text-zinc-950 text-cyan-300 border border-zinc-700/70 hover:border-cyan-400 transition-all"
-            title="Відкрити детальне пояснення оцінки у зручному вікні"
-          >
-            <Fingerprint className="w-3.5 h-3.5" />
-            <span>Чому така оцінка?</span>
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={toggleXaiPanel}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-zinc-800/80 hover:bg-cyan-500 hover:text-zinc-950 text-cyan-300 border border-zinc-700/70 hover:border-cyan-400 transition-all"
+              title="Відкрити швидкий XAI-розбір у модальному вікні"
+            >
+              <Fingerprint className="w-3.5 h-3.5" />
+              <span>Чому така оцінка?</span>
+            </button>
+
+            <Link
+              href={`/news/${article.id}`}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 hover:border-zinc-700 transition-all"
+              title="Відкрити повний текст статті з підсвічуванням фраз і токенів ШІ"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Повний розбір</span>
+            </Link>
+          </div>
 
           <TrustBadge score={article.trust_score} verdict={article.verdict} size="sm" />
         </div>
@@ -264,6 +277,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         data={
           xaiDetail
             ? {
+                article_id: article.id,
                 title: xaiDetail.title,
                 domain: xaiDetail.domain || article.domain,
                 url: xaiDetail.url || article.url,

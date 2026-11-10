@@ -262,6 +262,33 @@ async def get_article_detail(
     if not article:
         raise HTTPException(status_code=404, detail=f"Новину з ID {article_id} не знайдено")
 
+    # Якщо збережено лише короткий RSS-опис, довантажуємо повний текст статті з першоджерела
+    current_body = (article.full_text or "").strip()
+    if len(current_body) < 220 and article.url and article.url.startswith("http"):
+        try:
+            import httpx
+            import trafilatura
+
+            async with httpx.AsyncClient(
+                headers=news_ingestion_service.headers,
+                follow_redirects=True,
+                timeout=2.8,
+            ) as client:
+                resp = await client.get(article.url)
+                if resp.status_code == 200 and resp.text:
+                    extracted = trafilatura.extract(
+                        resp.text,
+                        include_comments=False,
+                        include_tables=False,
+                        no_fallback=False,
+                    )
+                    if extracted and len(extracted.strip()) > len(current_body):
+                        article.full_text = extracted.strip()[:12000]
+                        await db.commit()
+                        await db.refresh(article)
+        except Exception:
+            await db.rollback()
+
     is_bookmarked = False
     if current_user:
         b_res = await db.execute(

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { TrustScoreBreakdown } from "@/types";
 import { TrustBadge } from "./TrustBadge";
 import {
@@ -15,9 +16,11 @@ import {
   ExternalLink,
   RefreshCw,
   Globe,
+  BookOpen,
 } from "lucide-react";
 
 export interface XaiModalData {
+  article_id?: number;
   title: string;
   domain?: string;
   url?: string;
@@ -100,6 +103,16 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                   <span>Відкрити оригінал</span>
                   <ExternalLink className="w-3 h-3" />
                 </a>
+              )}
+              {data?.article_id && (
+                <Link
+                  href={`/news/${data.article_id}`}
+                  onClick={onClose}
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500 hover:text-zinc-950 font-semibold transition-colors"
+                >
+                  <BookOpen className="w-3 h-3" />
+                  <span>Повний текст і підсвітка ШІ →</span>
+                </Link>
               )}
             </div>
           </div>
