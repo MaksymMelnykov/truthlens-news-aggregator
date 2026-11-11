@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { NewsCard } from "@/components/NewsCard";
 import { Article, NewsFeedResponse } from "@/types";
 import { useAuth } from "@/context/AuthContext";
@@ -62,8 +63,15 @@ function getPaginationItems(current: number, total: number): (number | string)[]
 }
 
 export default function HomePage() {
+  const router = useRouter();
   const { user, apiUrl } = useAuth();
   const newsFeedRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (user?.role === "admin") {
+      router.replace("/analytics");
+    }
+  }, [user, router]);
 
   const [articles, setArticles] = useState<Article[]>([]);
   const [total, setTotal] = useState<number>(0);

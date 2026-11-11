@@ -24,7 +24,11 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.push("/");
+      if (email.trim().toLowerCase() === "admin@truthlens.ua") {
+        router.push("/analytics");
+      } else {
+        router.push("/");
+      }
     } catch (err: any) {
       setError(err.message || "Не вдалося увійти в систему");
     } finally {

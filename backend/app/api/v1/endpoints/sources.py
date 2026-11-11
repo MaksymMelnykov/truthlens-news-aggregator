@@ -44,9 +44,10 @@ async def create_source(
         raise HTTPException(status_code=400, detail="Джерело з таким доменом вже існує")
 
     source = Source(
-        name=source_in.name,
-        domain=source_in.domain.lower(),
-        homepage_url=source_in.homepage_url,
+        name=source_in.name.strip(),
+        domain=source_in.domain.lower().strip(),
+        homepage_url=source_in.homepage_url.strip() if source_in.homepage_url else f"https://{source_in.domain.lower().strip()}",
+        rss_url=source_in.rss_url.strip() if source_in.rss_url else None,
         language=source_in.language,
         country=source_in.country,
         reliability_rating=source_in.reliability_rating,
@@ -66,15 +67,16 @@ async def update_source(
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    """Оновити параметри джерела та оцінку надійності (тільки для адміністраторів)."""
+    """Оновити параметри джерела, RSS-стрічку та оцінку надійності (тільки для адміністраторів)."""
     res = await db.execute(select(Source).where(Source.id == source_id))
     source = res.scalar_one_or_none()
     if not source:
         raise HTTPException(status_code=404, detail="Джерело не знайдено")
 
-    source.name = source_in.name
-    source.domain = source_in.domain.lower()
-    source.homepage_url = source_in.homepage_url
+    source.name = source_in.name.strip()
+    source.domain = source_in.domain.lower().strip()
+    source.homepage_url = source_in.homepage_url.strip() if source_in.homepage_url else f"https://{source.domain}"
+    source.rss_url = source_in.rss_url.strip() if source_in.rss_url else None
     source.language = source_in.language
     source.country = source_in.country
     source.reliability_rating = source_in.reliability_rating
@@ -85,6 +87,43 @@ async def update_source(
     await db.commit()
     await db.refresh(source)
     return SourceRead.model_validate(source)
+
+
+@router.post("/{source_id}/fetch-rss")
+async def fetch_source_rss_now(
+    source_id: int,
+    max_items: int = Query(10, ge=1, le=30),
+    admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Миттєвий збір свіжих новин із RSS-каналу конкретного джерела (тільки адмін)."""
+    res = await db.execute(select(Source).where(Source.id == source_id))
+    source = res.scalar_one_or_none()
+    if not source:
+        raise HTTPException(status_code=404, detail="Джерело не знайдено")
+    if not source.rss_url:
+        raise HTTPException(status_code=400, detail="Для цього джерела не вказано URL RSS-стрічки")
+
+    from app.services.ingestion import news_ingestion_service
+
+    feed_config = {
+        "name": source.name,
+        "domain": source.domain,
+        "homepage_url": source.homepage_url or f"https://{source.domain}",
+        "rss_url": source.rss_url,
+        "reliability_rating": source.reliability_rating,
+        "is_whitelisted": source.is_whitelisted,
+        "language": source.language or "ua",
+        "country": source.country or "UA",
+    }
+    added_count = await news_ingestion_service.ingest_feed(db, feed_config, max_items=max_items)
+    return {
+        "status": "success",
+        "source_id": source.id,
+        "source_name": source.name,
+        "rss_url": source.rss_url,
+        "new_articles": added_count,
+    }
 
 
 @router.get("/check-reputation")

@@ -713,11 +713,16 @@ class NewsIngestionService:
                 name=feed_config["name"],
                 domain=domain,
                 homepage_url=feed_config.get("homepage_url", f"https://{domain}"),
+                rss_url=feed_config.get("rss_url"),
                 reliability_rating=feed_config.get("reliability_rating", 80.0),
                 is_whitelisted=feed_config.get("is_whitelisted", False),
                 language=feed_config.get("language", "ua"),
                 country=feed_config.get("country", "UA"),
             )
+            db.add(source)
+            await db.flush()
+        elif not source.rss_url and feed_config.get("rss_url"):
+            source.rss_url = feed_config.get("rss_url")
             db.add(source)
             await db.flush()
         return source
@@ -909,12 +914,39 @@ class NewsIngestionService:
         return new_articles_count
 
     async def sync_all_feeds(self, db: AsyncSession, max_per_feed: int = 15) -> Dict[str, Any]:
-        """Синхронізація всіх зареєстрованих RSS стрічок."""
+        """Синхронізація всіх зареєстрованих RSS стрічок (базових + доданих адміністратором у БД)."""
         start_time = datetime.now()
         total_new = 0
         feed_results = []
 
-        for feed_config in DEFAULT_FEEDS:
+        # Об'єднуємо базові канали та кастомні RSS-канали, додані адміністратором у таблицю sources
+        feeds_to_sync = list(DEFAULT_FEEDS)
+        known_rss_urls = {f["rss_url"].strip() for f in DEFAULT_FEEDS if f.get("rss_url")}
+        try:
+            custom_sources = (
+                await db.execute(
+                    select(Source).where(Source.rss_url.is_not(None), Source.is_blacklisted == False)
+                )
+            ).scalars().all()
+            for cs in custom_sources:
+                if cs.rss_url and cs.rss_url.strip() and cs.rss_url.strip() not in known_rss_urls:
+                    known_rss_urls.add(cs.rss_url.strip())
+                    feeds_to_sync.append(
+                        {
+                            "name": cs.name,
+                            "domain": cs.domain,
+                            "homepage_url": cs.homepage_url or f"https://{cs.domain}",
+                            "rss_url": cs.rss_url.strip(),
+                            "reliability_rating": cs.reliability_rating,
+                            "is_whitelisted": cs.is_whitelisted,
+                            "language": cs.language or "ua",
+                            "country": cs.country or "UA",
+                        }
+                    )
+        except Exception as e:
+            logger.debug("Помилка завантаження кастомних RSS-джерел із БД: %s", e)
+
+        for feed_config in feeds_to_sync:
             try:
                 count = await self.ingest_feed(db, feed_config, max_items=max_per_feed)
                 total_new += count
@@ -927,7 +959,7 @@ class NewsIngestionService:
         return {
             "status": "success",
             "total_new_articles": total_new,
-            "feeds_count": len(DEFAULT_FEEDS),
+            "feeds_count": len(feeds_to_sync),
             "duration_seconds": round(duration, 2),
             "details": feed_results,
         }

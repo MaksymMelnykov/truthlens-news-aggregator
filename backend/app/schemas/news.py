@@ -51,6 +51,7 @@ class SourceBase(BaseModel):
     name: str
     domain: str
     homepage_url: Optional[str] = None
+    rss_url: Optional[str] = None
     language: str = "ua"
     country: str = "UA"
     reliability_rating: float = 80.0

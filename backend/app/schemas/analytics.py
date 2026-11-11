@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import Any, List, Dict
 from pydantic import BaseModel
 
 
@@ -46,3 +46,4 @@ class AnalyticsOverviewResponse(BaseModel):
     top_sources: List[SourceCredibilityStat]
     daily_timeline: List[DailyTimelineStat] = []
     common_manipulation_markers: List[Dict[str, int]]
+    system_metrics: Dict[str, Any] = {}

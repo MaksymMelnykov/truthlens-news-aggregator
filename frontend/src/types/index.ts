@@ -136,6 +136,7 @@ export interface Source {
   name: string;
   domain: string;
   homepage_url?: string;
+  rss_url?: string;
   language: string;
   country: string;
   reliability_rating: number;

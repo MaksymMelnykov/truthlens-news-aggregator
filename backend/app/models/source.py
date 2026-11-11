@@ -15,6 +15,7 @@ class Source(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     domain: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     homepage_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    rss_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     language: Mapped[str] = mapped_column(String(10), default="ua", nullable=False)
     country: Mapped[str] = mapped_column(String(10), default="UA", nullable=False)
     reliability_rating: Mapped[float] = mapped_column(Float, default=80.0, nullable=False)
