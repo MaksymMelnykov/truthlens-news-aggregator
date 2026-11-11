@@ -14,6 +14,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   ShieldAlert,
+  PieChart,
 } from "lucide-react";
 
 export const Header: React.FC = () => {
@@ -77,6 +78,17 @@ export const Header: React.FC = () => {
           >
             <Sparkles className="w-4 h-4 text-cyan-400" />
             Перевірка статті
+          </Link>
+          <Link
+            href="/analytics"
+            className={`px-3.5 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${
+              isActive("/analytics")
+                ? "bg-zinc-800/80 text-white"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
+            }`}
+          >
+            <PieChart className="w-4 h-4 text-indigo-400" />
+            Аналітика
           </Link>
         </nav>
 
