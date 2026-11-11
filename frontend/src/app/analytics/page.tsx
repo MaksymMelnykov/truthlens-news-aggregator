@@ -31,6 +31,8 @@ import {
   CartesianGrid,
   AreaChart,
   Area,
+  LineChart,
+  Line,
 } from "recharts";
 
 interface CategoryStat {
@@ -99,46 +101,71 @@ interface AnalyticsOverview {
   system_metrics?: SystemMetrics;
 }
 
-interface ModelEvalItem {
-  id: string;
-  name: string;
-  architecture: string;
+interface ModelEvalEntry {
   accuracy: number;
   precision: number;
   recall: number;
   f1_score: number;
   roc_auc: number;
-  inference_latency_ms: number;
-  confusion_matrix: { tp: number; fp: number; tn: number; fn: number };
-  description: string;
+  cv_5fold_f1?: number;
+  latency_ms_per_article?: number;
+  train_duration_sec?: number;
+  confusion_matrix?: number[][];
 }
 
-interface EpochData {
+interface TransformerEpochEntry {
   epoch: number;
-  ukr_roberta_val_f1: number;
-  xlm_roberta_val_f1: number;
-  ensemble_val_f1: number;
   train_loss: number;
   val_loss: number;
+  val_f1: number;
+  val_accuracy: number;
+  xlm_train_loss?: number;
+  xlm_val_loss?: number;
+  xlm_val_f1?: number;
+  xlm_val_accuracy?: number;
 }
 
 interface ModelMetricsResponse {
-  dataset_summary: {
+  status?: string;
+  dataset?: {
     total_samples: number;
     train_samples: number;
     test_samples: number;
-    real_news_samples: number;
-    fake_news_samples: number;
-    languages: string[];
-    sources_used: string[];
   };
-  models_comparison: ModelEvalItem[];
-  training_epochs: EpochData[];
-  top_discriminative_features: {
-    fake_indicators: { feature: string; weight: number }[];
-    real_indicators: { feature: string; weight: number }[];
+  models?: Record<string, ModelEvalEntry>;
+  transformer_training_history?: TransformerEpochEntry[];
+  xai_discriminative_features?: {
+    fake_indicators?: Array<{ feature: string; weight: number }>;
+    real_indicators?: Array<{ feature: string; weight: number }>;
   };
 }
+
+const MODEL_DESCRIPTIONS: Record<string, { arch: string; desc: string }> = {
+  "Logistic Regression (TF-IDF)": {
+    arch: "Линійна модель + TF-IDF N-грами (baseline)",
+    desc: "Швидкий лінійний класифікатор для базового лексичного аналізу токенів та кліше.",
+  },
+  "Calibrated Linear SVM": {
+    arch: "Метод опорних векторів + ізотонічна калібровка",
+    desc: "Стійкий класифікатор із каліброваними ймовірностями на розріджених N-грамах.",
+  },
+  "Random Forest NLP": {
+    arch: "Ансамбль дерев рішень на NLP-ознаках",
+    desc: "Нелінійна комбінація текстових ознак та маркерів стилістики.",
+  },
+  "TruthLens Hybrid Ensemble": {
+    arch: "Гібридний стекінг-ансамбль (Word/Char N-grams + Стилометрія)",
+    desc: "Виробничий ансамбль, що поєднує декілька моделей із векторною косинусною схожістю та стилометрією.",
+  },
+  "ukr-roberta-base (Fine-Tuned)": {
+    arch: "Трансформерна модель для української мови (RoBERTa)",
+    desc: "Довчена трансформерна модель youscan/ukr-roberta-base для виявлення контекстних маніпуляцій в україномовних медіа.",
+  },
+  "xlm-roberta-base (Fine-Tuned)": {
+    arch: "Мультимовна трансформерна модель (XLM-RoBERTa)",
+    desc: "Крос-мовна нейромережа xlm-roberta-base для одночасної оцінки українських та міжнародних (EN) новин.",
+  },
+};
 
 export default function AnalyticsPage() {
   const { user, isLoading: authLoading, apiUrl } = useAuth();
@@ -146,23 +173,29 @@ export default function AnalyticsPage() {
   const [mlMetrics, setMlMetrics] = useState<ModelMetricsResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<"system" | "media" | "models">("system");
-  const [selectedModelId, setSelectedModelId] = useState<string>("hybrid_ensemble");
+  const [selectedModelName, setSelectedModelName] = useState<string>("ukr-roberta-base (Fine-Tuned)");
 
   const fetchAnalytics = async () => {
     setLoading(true);
     try {
       const baseApi = apiUrl.endsWith("/api/v1") ? apiUrl : `${apiUrl}/api/v1`;
       const [ovRes, mlRes] = await Promise.all([
-        fetch(`${baseApi}/analytics/overview`),
-        fetch(`${baseApi}/analytics/model-metrics`),
+        fetch(`${baseApi}/analytics/overview`, { cache: "no-store" }),
+        fetch(`${baseApi}/analytics/model-metrics`, { cache: "no-store" }),
       ]);
       if (ovRes.ok) {
-        const ovData = await ovRes.json();
+        const ovData: AnalyticsOverview = await ovRes.json();
         setOverview(ovData);
       }
       if (mlRes.ok) {
-        const mlData = await mlRes.json();
+        const mlData: ModelMetricsResponse = await mlRes.json();
         setMlMetrics(mlData);
+        if (mlData?.models) {
+          const keys = Object.keys(mlData.models);
+          if (keys.length > 0 && !mlData.models[selectedModelName]) {
+            setSelectedModelName(keys[keys.length - 1]);
+          }
+        }
       }
     } catch (err) {
       console.error("Помилка завантаження аналітики:", err);
@@ -177,6 +210,7 @@ export default function AnalyticsPage() {
     } else if (!authLoading) {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl, user, authLoading]);
 
   if (!authLoading && (!user || user.role !== "admin")) {
@@ -209,9 +243,19 @@ export default function AnalyticsPage() {
     );
   }
 
-  const selectedModel =
-    mlMetrics?.models_comparison.find((m) => m.id === selectedModelId) ||
-    mlMetrics?.models_comparison[mlMetrics.models_comparison.length - 1];
+  const modelsEntries = Object.entries(mlMetrics?.models ?? {});
+  const selectedModelTuple =
+    modelsEntries.find(([name]) => name === selectedModelName) ||
+    modelsEntries[modelsEntries.length - 1] ||
+    null;
+
+  const selectedName = selectedModelTuple?.[0] ?? "";
+  const selectedStats = selectedModelTuple?.[1] ?? null;
+  const cm = selectedStats?.confusion_matrix ?? [];
+  const tnVal = cm[0]?.[0] ?? 0;
+  const fpVal = cm[0]?.[1] ?? 0;
+  const fnVal = cm[1]?.[0] ?? 0;
+  const tpVal = cm[1]?.[1] ?? 0;
 
   const pieData = overview
     ? [
@@ -222,7 +266,7 @@ export default function AnalyticsPage() {
     : [];
 
   const categoryChartData =
-    overview?.categories_breakdown.map((cat) => ({
+    overview?.categories_breakdown?.map((cat) => ({
       name: cat.category,
       Перевірені: cat.verified_count,
       Сумнівні: cat.caution_count,
@@ -231,7 +275,7 @@ export default function AnalyticsPage() {
     })) || [];
 
   const timelineChartData =
-    overview?.daily_timeline.map((day) => ({
+    overview?.daily_timeline?.map((day) => ({
       date: day.date.slice(5),
       Перевірені: day.verified,
       Сумнівні: day.caution,
@@ -240,12 +284,22 @@ export default function AnalyticsPage() {
       Довіра: day.avg_trust,
     })) || [];
 
-  const modelsChartData =
-    mlMetrics?.models_comparison.map((m) => ({
-      name: m.name.replace(" (Fine-tuned)", "").replace("TruthLens ", ""),
-      Accuracy: Number((m.accuracy * 100).toFixed(1)),
-      "F1-Score": Number((m.f1_score * 100).toFixed(1)),
-      "ROC-AUC": Number((m.roc_auc * 100).toFixed(1)),
+  const modelsChartData = modelsEntries.map(([name, m]) => ({
+    name: name
+      .replace(" (Fine-Tuned)", "")
+      .replace(" (TF-IDF)", "")
+      .replace("TruthLens ", ""),
+    Accuracy: Number(((m.accuracy ?? 0) * 100).toFixed(1)),
+    "F1-Score": Number(((m.f1_score ?? 0) * 100).toFixed(1)),
+    "ROC-AUC": Number(((m.roc_auc ?? 0) * 100).toFixed(1)),
+  }));
+
+  const trainingChartData =
+    mlMetrics?.transformer_training_history?.map((ep) => ({
+      epoch: `Епоха ${ep.epoch}`,
+      "ukr-roberta Val F1 (%)": Number(((ep.val_f1 ?? 0) * 100).toFixed(1)),
+      "xlm-roberta Val F1 (%)": Number(((ep.xlm_val_f1 ?? ep.val_f1 ?? 0) * 100).toFixed(1)),
+      "ukr-roberta Val Loss": Number((ep.val_loss ?? 0).toFixed(4)),
     })) || [];
 
   return (
@@ -415,27 +469,27 @@ export default function AnalyticsPage() {
                     <span>Стан серверної інфраструктури та СУБД</span>
                   </h3>
                   <div className="space-y-3 text-xs">
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
                       <span className="text-zinc-400">Хмарна база даних:</span>
-                      <span className="font-mono font-bold text-cyan-300">
+                      <span className="font-mono font-bold text-cyan-300 text-right">
                         {overview.system_metrics?.db_engine ||
                           "Neon.tech Cloud PostgreSQL 17 + pgvector (HNSW)"}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
                       <span className="text-zinc-400">Фоновий RSS-планувальник:</span>
-                      <span className="font-mono font-bold text-emerald-400">
+                      <span className="font-mono font-bold text-emerald-400 text-right">
                         {overview.system_metrics?.scheduler_status || "Активний"} (кожні{" "}
                         {overview.system_metrics?.scheduler_interval_min ?? 5} хв)
                       </span>
                     </div>
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
                       <span className="text-zinc-400">Середня затримка ML-інференсу:</span>
                       <span className="font-mono font-bold text-indigo-300">
                         {overview.system_metrics?.avg_inference_latency_ms ?? 3.8} мс / стаття
                       </span>
                     </div>
-                    <div className="flex items-center justify-between p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
+                    <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-zinc-950/80 border border-zinc-800/80">
                       <span className="text-zinc-400">Середній бал довіри по системі:</span>
                       <span className="font-mono font-bold text-emerald-300">
                         {overview.avg_trust_score}%
@@ -479,7 +533,6 @@ export default function AnalyticsPage() {
             <div className="space-y-6">
               {/* Ряд 1 Recharts: Donut-діаграма вердиктів + Стовпчикова діаграма по рубриках */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Donut Chart */}
                 <div className="lg:col-span-5 p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 flex flex-col justify-between">
                   <div className="space-y-1 mb-2">
                     <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -491,7 +544,7 @@ export default function AnalyticsPage() {
                     </p>
                   </div>
 
-                  <div className="h-72 w-full">
+                  <div className="w-full" style={{ height: 280 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -538,7 +591,7 @@ export default function AnalyticsPage() {
                     </p>
                   </div>
 
-                  <div className="h-72 w-full">
+                  <div className="w-full" style={{ height: 280 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={categoryChartData}
@@ -557,8 +610,8 @@ export default function AnalyticsPage() {
                           }}
                         />
                         <Legend wrapperStyle={{ fontSize: "11px" }} />
-                        <Bar dataKey="Перевірені" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-                        <Bar dataKey="Сумнівні" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
+                        <Bar dataKey="Перевірені" stackId="a" fill="#10b981" />
+                        <Bar dataKey="Сумнівні" stackId="a" fill="#f59e0b" />
                         <Bar dataKey="Ризикові" stackId="a" fill="#f43f5e" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -579,7 +632,7 @@ export default function AnalyticsPage() {
                     </p>
                   </div>
 
-                  <div className="h-64 w-full">
+                  <div className="w-full" style={{ height: 256 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart
                         data={timelineChartData}
@@ -640,10 +693,14 @@ export default function AnalyticsPage() {
                   </div>
 
                   <div className="space-y-2.5">
-                    {overview.common_manipulation_markers.map((item, idx) => {
-                      const [label, count] = Object.entries(item)[0];
-                      const maxVal =
-                        Object.values(overview.common_manipulation_markers[0] || {})[0] || 100;
+                    {(overview.common_manipulation_markers || []).map((item, idx) => {
+                      const entry = Object.entries(item)[0];
+                      if (!entry) return null;
+                      const [label, count] = entry;
+                      const firstEntry = overview.common_manipulation_markers[0]
+                        ? Object.values(overview.common_manipulation_markers[0])[0]
+                        : 100;
+                      const maxVal = firstEntry || 100;
                       const widthPct = Math.min(100, Math.round((count / maxVal) * 100));
                       return (
                         <div
@@ -703,7 +760,7 @@ export default function AnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-800/70 text-xs sm:text-sm">
-                      {overview.top_sources.map((src, idx) => (
+                      {(overview.top_sources || []).map((src, idx) => (
                         <tr
                           key={`${src.domain}-${src.language}-${idx}`}
                           className="hover:bg-zinc-800/30 transition-colors"
@@ -761,186 +818,331 @@ export default function AnalyticsPage() {
           )}
 
           {/* ВКЛАДКА 3: ПОРІВНЯННЯ ML/NLP МОДЕЛЕЙ */}
-          {activeTab === "models" && mlMetrics && (
+          {activeTab === "models" && (
             <div className="space-y-6">
-              {/* Recharts графік порівняння 6 ML моделей */}
-              <div className="p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
-                <div className="space-y-1">
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-cyan-400" />
-                    <span>Візуальне порівняння точності 6 ML/NLP архітектур (Recharts)</span>
-                  </h3>
+              {modelsEntries.length === 0 ? (
+                <div className="p-8 rounded-3xl bg-zinc-900/70 border border-zinc-800 text-center space-y-2">
+                  <p className="text-sm font-semibold text-zinc-200">
+                    Метрики навчання моделей ще не завантажені або формуються
+                  </p>
                   <p className="text-xs text-zinc-400">
-                    Зіставлення Accuracy (%), F1-Score (%) та ROC-AUC (%) на тестовій вибірці ({mlMetrics.dataset_summary.test_samples} зразків із {mlMetrics.dataset_summary.total_samples})
+                    Перевірте наявність `evaluation_results.json` у папці ML-артефактів бекенду.
                   </p>
                 </div>
+              ) : (
+                <>
+                  {/* Ряд графіків Recharts для ML моделей та епох навчання */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* BarChart порівняння 6 ML моделей */}
+                    <div className="lg:col-span-7 p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-cyan-400" />
+                          <span>Порівняння точності 6 ML/NLP архітектур (Recharts)</span>
+                        </h3>
+                        <p className="text-xs text-zinc-400">
+                          Зіставлення Accuracy (%), F1-Score (%) та ROC-AUC (%) на тестовій вибірці (
+                          {mlMetrics?.dataset?.test_samples ?? 264} зразків із{" "}
+                          {mlMetrics?.dataset?.total_samples ?? 1200})
+                        </p>
+                      </div>
 
-                <div className="h-80 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={modelsChartData}
-                      margin={{ top: 10, right: 20, left: -10, bottom: 5 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                      <XAxis dataKey="name" stroke="#a1a1aa" fontSize={11} />
-                      <YAxis domain={[70, 100]} stroke="#a1a1aa" fontSize={11} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: "#09090b",
-                          borderColor: "#27272a",
-                          borderRadius: "12px",
-                          fontSize: "12px",
-                          color: "#f4f4f5",
-                        }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: "11px" }} />
-                      <Bar dataKey="Accuracy" fill="#06b6d4" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="F1-Score" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="ROC-AUC" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-
-              {/* Порівняльна таблиця 6 моделей */}
-              <div className="p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      <Fingerprint className="w-5 h-5 text-indigo-400" />
-                      <span>Експериментальне порівняння моделей детекції дезінформації</span>
-                    </h3>
-                    <p className="text-xs text-zinc-400">
-                      Натисніть на будь-яку модель у таблиці, щоб переглянути її матрицю помилок (Confusion Matrix)
-                    </p>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-zinc-800 text-[11px] uppercase font-mono text-zinc-400">
-                        <th className="py-3 px-4">Модель / Архітектура</th>
-                        <th className="py-3 px-4 text-right">Accuracy</th>
-                        <th className="py-3 px-4 text-right">Precision</th>
-                        <th className="py-3 px-4 text-right">Recall</th>
-                        <th className="py-3 px-4 text-right">F1-Score</th>
-                        <th className="py-3 px-4 text-right">ROC-AUC</th>
-                        <th className="py-3 px-4 text-right">Час (мс)</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-800/70 text-xs sm:text-sm">
-                      {mlMetrics.models_comparison.map((m) => {
-                        const isSelected = m.id === selectedModel?.id;
-                        const isBest = m.id === "hybrid_ensemble";
-                        return (
-                          <tr
-                            key={m.id}
-                            onClick={() => setSelectedModelId(m.id)}
-                            className={`cursor-pointer transition-colors ${
-                              isSelected
-                                ? "bg-cyan-500/10 border-l-2 border-l-cyan-400"
-                                : "hover:bg-zinc-800/40"
-                            }`}
+                      <div className="w-full" style={{ height: 300 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={modelsChartData}
+                            margin={{ top: 10, right: 15, left: -10, bottom: 20 }}
                           >
-                            <td className="py-3.5 px-4">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-white">{m.name}</span>
-                                {isBest && (
-                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 text-white">
-                                    BEST (SOTA)
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-zinc-400">{m.architecture}</div>
-                            </td>
-                            <td className="py-3.5 px-4 text-right font-mono font-semibold text-zinc-200">
-                              {(m.accuracy * 100).toFixed(1)}%
-                            </td>
-                            <td className="py-3.5 px-4 text-right font-mono text-zinc-300">
-                              {(m.precision * 100).toFixed(1)}%
-                            </td>
-                            <td className="py-3.5 px-4 text-right font-mono text-zinc-300">
-                              {(m.recall * 100).toFixed(1)}%
-                            </td>
-                            <td className="py-3.5 px-4 text-right">
-                              <span
-                                className={`px-2.5 py-1 rounded-lg font-mono font-bold text-xs ${
-                                  isBest
-                                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
-                                    : "bg-zinc-800 text-cyan-300"
+                            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                            <XAxis
+                              dataKey="name"
+                              stroke="#a1a1aa"
+                              fontSize={10}
+                              angle={-12}
+                              textAnchor="end"
+                              height={50}
+                            />
+                            <YAxis domain={[90, 100]} stroke="#a1a1aa" fontSize={11} />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "#09090b",
+                                borderColor: "#27272a",
+                                borderRadius: "12px",
+                                fontSize: "12px",
+                                color: "#f4f4f5",
+                              }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: "11px" }} />
+                            <Bar dataKey="Accuracy" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="F1-Score" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="ROC-AUC" fill="#10b981" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* LineChart збіжності RoBERTa по епохах */}
+                    <div className="lg:col-span-5 p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Clock className="w-5 h-5 text-emerald-400" />
+                          <span>Динаміка Val F1-Score трансформерів</span>
+                        </h3>
+                        <p className="text-xs text-zinc-400">
+                          Криві навчання `ukr-roberta-base` та `xlm-roberta-base` за 5 епох Fine-Tuning
+                        </p>
+                      </div>
+
+                      <div className="w-full" style={{ height: 300 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={trainingChartData}
+                            margin={{ top: 10, right: 15, left: -10, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
+                            <XAxis dataKey="epoch" stroke="#a1a1aa" fontSize={11} />
+                            <YAxis domain={[80, 100]} stroke="#a1a1aa" fontSize={11} />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: "#09090b",
+                                borderColor: "#27272a",
+                                borderRadius: "12px",
+                                fontSize: "12px",
+                                color: "#f4f4f5",
+                              }}
+                            />
+                            <Legend wrapperStyle={{ fontSize: "11px" }} />
+                            <Line
+                              type="monotone"
+                              dataKey="ukr-roberta Val F1 (%)"
+                              stroke="#06b6d4"
+                              strokeWidth={3}
+                              dot={{ r: 4 }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="xlm-roberta Val F1 (%)"
+                              stroke="#10b981"
+                              strokeWidth={3}
+                              dot={{ r: 4 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Порівняльна таблиця 6 моделей */}
+                  <div className="p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <Fingerprint className="w-5 h-5 text-indigo-400" />
+                          <span>Експериментальне порівняння моделей детекції дезінформації</span>
+                        </h3>
+                        <p className="text-xs text-zinc-400">
+                          Натисніть на будь-яку модель у таблиці, щоб переглянути її матрицю невідповідностей (Confusion Matrix)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-zinc-800 text-[11px] uppercase font-mono text-zinc-400">
+                            <th className="py-3 px-4">Модель / Архітектура</th>
+                            <th className="py-3 px-4 text-right">Accuracy</th>
+                            <th className="py-3 px-4 text-right">Precision</th>
+                            <th className="py-3 px-4 text-right">Recall</th>
+                            <th className="py-3 px-4 text-right">F1-Score</th>
+                            <th className="py-3 px-4 text-right">5-Fold CV</th>
+                            <th className="py-3 px-4 text-right">ROC-AUC</th>
+                            <th className="py-3 px-4 text-right">Час (мс)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-800/70 text-xs sm:text-sm">
+                          {modelsEntries.map(([modelKey, m]) => {
+                            const isSelected = modelKey === selectedName;
+                            const isBest = modelKey === "ukr-roberta-base (Fine-Tuned)";
+                            const meta = MODEL_DESCRIPTIONS[modelKey];
+                            return (
+                              <tr
+                                key={modelKey}
+                                onClick={() => setSelectedModelName(modelKey)}
+                                className={`cursor-pointer transition-colors ${
+                                  isSelected
+                                    ? "bg-cyan-500/10 border-l-2 border-l-cyan-400"
+                                    : "hover:bg-zinc-800/40"
                                 }`}
                               >
-                                {(m.f1_score * 100).toFixed(1)}%
-                              </span>
-                            </td>
-                            <td className="py-3.5 px-4 text-right font-mono text-indigo-300">
-                              {(m.roc_auc * 100).toFixed(1)}%
-                            </td>
-                            <td className="py-3.5 px-4 text-right font-mono text-zinc-400">
-                              {m.inference_latency_ms} мс
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Матриця помилок (Confusion Matrix) обраної моделі */}
-              {selectedModel && (
-                <div className="p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
-                  <div className="space-y-1">
-                    <h3 className="text-base font-bold text-white">
-                      Матриця невідповідностей (Confusion Matrix):{" "}
-                      <span className="text-cyan-400">{selectedModel.name}</span>
-                    </h3>
-                    <p className="text-xs text-zinc-400">{selectedModel.description}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-                    <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-1">
-                      <span className="text-[10px] font-mono uppercase text-emerald-300">
-                        True Positive (TP)
-                      </span>
-                      <div className="text-2xl font-extrabold font-mono text-white">
-                        {selectedModel.confusion_matrix.tp}
-                      </div>
-                      <p className="text-[11px] text-zinc-300">Вірно виявлені фейки</p>
-                    </div>
-
-                    <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 space-y-1">
-                      <span className="text-[10px] font-mono uppercase text-cyan-300">
-                        True Negative (TN)
-                      </span>
-                      <div className="text-2xl font-extrabold font-mono text-white">
-                        {selectedModel.confusion_matrix.tn}
-                      </div>
-                      <p className="text-[11px] text-zinc-300">Вірно підтверджені факти</p>
-                    </div>
-
-                    <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1">
-                      <span className="text-[10px] font-mono uppercase text-amber-300">
-                        False Positive (FP)
-                      </span>
-                      <div className="text-2xl font-extrabold font-mono text-white">
-                        {selectedModel.confusion_matrix.fp}
-                      </div>
-                      <p className="text-[11px] text-zinc-300">Хибна тривога</p>
-                    </div>
-
-                    <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1">
-                      <span className="text-[10px] font-mono uppercase text-rose-300">
-                        False Negative (FN)
-                      </span>
-                      <div className="text-2xl font-extrabold font-mono text-white">
-                        {selectedModel.confusion_matrix.fn}
-                      </div>
-                      <p className="text-[11px] text-zinc-300">Пропущена маніпуляція</p>
+                                <td className="py-3.5 px-4">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-white">{modelKey}</span>
+                                    {isBest && (
+                                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gradient-to-r from-cyan-500 to-indigo-600 text-white">
+                                        BEST (SOTA)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-zinc-400">
+                                    {meta?.arch || "NLP Класифікатор TruthLens"}
+                                  </div>
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-mono font-semibold text-zinc-200">
+                                  {((m.accuracy ?? 0) * 100).toFixed(1)}%
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-mono text-zinc-300">
+                                  {((m.precision ?? 0) * 100).toFixed(1)}%
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-mono text-zinc-300">
+                                  {((m.recall ?? 0) * 100).toFixed(1)}%
+                                </td>
+                                <td className="py-3.5 px-4 text-right">
+                                  <span
+                                    className={`px-2.5 py-1 rounded-lg font-mono font-bold text-xs ${
+                                      isBest
+                                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                        : "bg-zinc-800 text-cyan-300"
+                                    }`}
+                                  >
+                                    {((m.f1_score ?? 0) * 100).toFixed(1)}%
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-mono text-zinc-300">
+                                  {m.cv_5fold_f1 ? `${(m.cv_5fold_f1 * 100).toFixed(1)}%` : "—"}
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-mono text-indigo-300">
+                                  {((m.roc_auc ?? 0) * 100).toFixed(1)}%
+                                </td>
+                                <td className="py-3.5 px-4 text-right font-mono text-zinc-400">
+                                  {m.latency_ms_per_article !== undefined
+                                    ? `${m.latency_ms_per_article.toFixed(2)} мс`
+                                    : "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-                </div>
+
+                  {/* Матриця помилок (Confusion Matrix) + Топ дискримінативних токенів XAI */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {selectedStats && (
+                      <div className="lg:col-span-6 p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
+                        <div className="space-y-1">
+                          <h3 className="text-base font-bold text-white">
+                            Матриця невідповідностей:{" "}
+                            <span className="text-cyan-400">{selectedName}</span>
+                          </h3>
+                          <p className="text-xs text-zinc-400">
+                            {MODEL_DESCRIPTIONS[selectedName]?.desc ||
+                              "Розподіл коректних та хибних класифікацій на тестовому наборі."}
+                          </p>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                          <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 space-y-1">
+                            <span className="text-[10px] font-mono uppercase text-emerald-300">
+                              True Positive (TP)
+                            </span>
+                            <div className="text-2xl font-extrabold font-mono text-white">
+                              {tpVal}
+                            </div>
+                            <p className="text-[11px] text-zinc-300">Вірно виявлені фейки</p>
+                          </div>
+
+                          <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 space-y-1">
+                            <span className="text-[10px] font-mono uppercase text-cyan-300">
+                              True Negative (TN)
+                            </span>
+                            <div className="text-2xl font-extrabold font-mono text-white">
+                              {tnVal}
+                            </div>
+                            <p className="text-[11px] text-zinc-300">Вірно підтверджені факти</p>
+                          </div>
+
+                          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-1">
+                            <span className="text-[10px] font-mono uppercase text-amber-300">
+                              False Positive (FP)
+                            </span>
+                            <div className="text-2xl font-extrabold font-mono text-white">
+                              {fpVal}
+                            </div>
+                            <p className="text-[11px] text-zinc-300">Хибна тривога</p>
+                          </div>
+
+                          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1">
+                            <span className="text-[10px] font-mono uppercase text-rose-300">
+                              False Negative (FN)
+                            </span>
+                            <div className="text-2xl font-extrabold font-mono text-white">
+                              {fnVal}
+                            </div>
+                            <p className="text-[11px] text-zinc-300">Пропущена маніпуляція</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Топ XAI-ознаки корпусу */}
+                    <div className="lg:col-span-6 p-6 rounded-3xl bg-zinc-900/70 border border-zinc-800 space-y-4">
+                      <div className="space-y-1">
+                        <h3 className="text-base font-bold text-white">
+                          Глобальна важливість ознак XAI (Топ-токени корпусу)
+                        </h3>
+                        <p className="text-xs text-zinc-400">
+                          Ключові лексичні маркери маніпуляцій та достовірного новинного стилю з вагами моделі
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-rose-400 uppercase font-mono">
+                            Маркери дезінформації (+)
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(mlMetrics?.xai_discriminative_features?.fake_indicators ?? [])
+                              .slice(0, 10)
+                              .map((feat, idx) => (
+                                <span
+                                  key={`fake-feat-${idx}`}
+                                  className="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/25 text-xs text-rose-200 font-mono"
+                                >
+                                  {feat.feature}{" "}
+                                  <span className="text-[10px] text-rose-400">
+                                    +{feat.weight.toFixed(2)}
+                                  </span>
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-emerald-400 uppercase font-mono">
+                            Маркери надійних фактів (–)
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(mlMetrics?.xai_discriminative_features?.real_indicators ?? [])
+                              .slice(0, 10)
+                              .map((feat, idx) => (
+                                <span
+                                  key={`real-feat-${idx}`}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/25 text-xs text-emerald-200 font-mono"
+                                >
+                                  {feat.feature}{" "}
+                                  <span className="text-[10px] text-emerald-400">
+                                    {feat.weight.toFixed(2)}
+                                  </span>
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}
