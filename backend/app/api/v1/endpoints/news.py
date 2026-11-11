@@ -141,8 +141,9 @@ async def get_news_feed(
     page_size: int = Query(12, ge=1, le=50, description="Кількість новин на сторінці"),
     category: Optional[str] = Query(None, description="Фільтр за категорією"),
     language: Optional[str] = Query(None, description="Мова (ua або en)"),
+    source: Optional[str] = Query(None, description="Фільтр за доменом або назвою джерела"),
     verdict: Optional[str] = Query(None, description="Рівень довіри: Verified, Caution, High Risk"),
-    search: Optional[str] = Query(None, description="Пошуковий запит у заголовку чи тексті"),
+    search: Optional[str] = Query(None, description="Пошуковий запит у заголовку, тексті чи джерелі"),
     time_range: Optional[str] = Query("all", description="Часовий діапазон: all, 24h, today, week"),
     sort_by: Optional[str] = Query("newest", description="Сортування: newest, trust_desc, trust_asc"),
     personalized: bool = Query(False, description="Застосувати персональні уподобання авторизованого користувача"),
@@ -177,6 +178,13 @@ async def get_news_feed(
         query = query.where(Article.category == category)
     if language and language != "all":
         query = query.where(Article.language == language)
+    if source and source != "ALL":
+        query = query.where(
+            or_(
+                Article.domain == source,
+                Article.source_name == source,
+            )
+        )
     if verdict:
         query = query.where(Article.verdict == verdict)
     if search:
@@ -184,7 +192,9 @@ async def get_news_feed(
         query = query.where(
             or_(
                 Article.title.ilike(search_pattern),
-                Article.summary.ilike(search_pattern)
+                Article.summary.ilike(search_pattern),
+                Article.source_name.ilike(search_pattern),
+                Article.domain.ilike(search_pattern),
             )
         )
 

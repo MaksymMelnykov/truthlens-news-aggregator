@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { NewsCard } from "@/components/NewsCard";
-import { Article, NewsFeedResponse } from "@/types";
+import { Article, NewsFeedResponse, Source } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { PreferencesModal } from "@/components/PreferencesModal";
 import {
@@ -83,6 +83,8 @@ export default function HomePage() {
   const [search, setSearch] = useState<string>("");
   const [activeSearch, setActiveSearch] = useState<string>("");
   const [category, setCategory] = useState<string>("Всі");
+  const [selectedSource, setSelectedSource] = useState<string>("ALL");
+  const [availableSources, setAvailableSources] = useState<Source[]>([]);
   const [verdict, setVerdict] = useState<string>("ALL");
   const [timeRange, setTimeRange] = useState<string>("all");
   const [sortBy, setSortBy] = useState<string>("newest");
@@ -102,6 +104,7 @@ export default function HomePage() {
       params.append("page_size", sizeToFetch.toString());
       if (feedScope !== "all") params.append("language", feedScope);
       if (category !== "Всі") params.append("category", category);
+      if (selectedSource !== "ALL") params.append("source", selectedSource);
       if (verdict !== "ALL") params.append("verdict", verdict);
       if (timeRange !== "all") params.append("time_range", timeRange);
       if (sortBy !== "newest") params.append("sort_by", sortBy);
@@ -135,9 +138,22 @@ export default function HomePage() {
     }
   };
 
+  // Завантажуємо актуальний перелік активних джерел ЗМІ (включно з доданими адміністратором)
+  useEffect(() => {
+    const baseApi = apiUrl.endsWith("/api/v1") ? apiUrl : `${apiUrl}/api/v1`;
+    fetch(`${baseApi}/sources`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: Source[]) => {
+        if (Array.isArray(data)) {
+          setAvailableSources(data.filter((s) => !s.is_blacklisted));
+        }
+      })
+      .catch(() => {});
+  }, [apiUrl]);
+
   useEffect(() => {
     fetchNews(true, currentPage, pageSize);
-  }, [currentPage, pageSize, feedScope, category, verdict, timeRange, sortBy, onlyPersonalized, activeSearch]);
+  }, [currentPage, pageSize, feedScope, category, selectedSource, verdict, timeRange, sortBy, onlyPersonalized, activeSearch]);
 
   // Фонове автоматичне оновлення стрічки новин кожні 25 секунд + при поверненні на вкладку без перезавантаження сторінки
   useEffect(() => {
@@ -159,7 +175,7 @@ export default function HomePage() {
       window.removeEventListener("focus", handleVisibilityOrFocus);
       document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
     };
-  }, [autoRefresh, currentPage, pageSize, feedScope, category, verdict, timeRange, sortBy, onlyPersonalized, activeSearch]);
+  }, [autoRefresh, currentPage, pageSize, feedScope, category, selectedSource, verdict, timeRange, sortBy, onlyPersonalized, activeSearch]);
 
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage > totalPages || newPage === currentPage) return;
@@ -354,7 +370,7 @@ export default function HomePage() {
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
               <input
                 type="text"
-                placeholder="Пошук у новинах..."
+                placeholder="Пошук за заголовком або джерелом..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-1.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-zinc-700"
@@ -416,26 +432,60 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Третій рядок: Сортування, Автооновлення та ручна синхронізація */}
+        {/* Третій рядок: Сортування, Джерело ЗМІ, Автооновлення та Персоналізація */}
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs pt-1 border-t border-zinc-900/60">
-          {/* Сортування */}
-          <div className="flex items-center gap-2">
-            <span className="text-zinc-500 font-medium inline-flex items-center gap-1">
-              <ArrowUpDown className="w-3.5 h-3.5 text-zinc-400" />
-              Сортувати:
-            </span>
-            <select
-              value={sortBy}
-              onChange={(e) => handleSortByChange(e.target.value)}
-              aria-label="Сортування новин"
-              className="bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-cyan-500/50 cursor-pointer"
-            >
-              {SORT_OPTIONS.map((so) => (
-                <option key={so.id} value={so.id}>
-                  {so.label}
-                </option>
-              ))}
-            </select>
+          {/* Сортування + Фільтр за конкретним джерелом */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500 font-medium inline-flex items-center gap-1">
+                <ArrowUpDown className="w-3.5 h-3.5 text-zinc-400" />
+                Сортувати:
+              </span>
+              <select
+                value={sortBy}
+                onChange={(e) => handleSortByChange(e.target.value)}
+                aria-label="Сортування новин"
+                className="bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-cyan-500/50 cursor-pointer"
+              >
+                {SORT_OPTIONS.map((so) => (
+                  <option key={so.id} value={so.id}>
+                    {so.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {availableSources.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500 font-medium inline-flex items-center gap-1">
+                  <Globe2 className="w-3.5 h-3.5 text-cyan-400" />
+                  Джерело:
+                </span>
+                <select
+                  value={selectedSource}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedSource(val);
+                    setCurrentPage(1);
+                    if (val !== "ALL") {
+                      const picked = availableSources.find((s) => s.domain === val);
+                      if (picked && feedScope !== "all" && picked.language !== feedScope) {
+                        setFeedScope("all");
+                      }
+                    }
+                  }}
+                  aria-label="Фільтр за джерелом новин"
+                  className="bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-xl px-2.5 py-1 focus:outline-none focus:border-cyan-500/50 cursor-pointer max-w-[200px]"
+                >
+                  <option value="ALL">Всі джерела ({availableSources.length})</option>
+                  {availableSources.map((src) => (
+                    <option key={src.id} value={src.domain}>
+                      {src.name} ({src.language === "en" ? "EN" : "UA"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           {/* Права частина: Індикатор Автооновлення + Кнопка Оновити з RSS */}

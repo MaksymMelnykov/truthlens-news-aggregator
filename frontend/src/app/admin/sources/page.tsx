@@ -131,10 +131,13 @@ export default function AdminSourcesPage() {
 
       if (res.ok) {
         setIsModalOpen(false);
+        const rssNote = payload.rss_url
+          ? " Автоматичний імпорт новин із RSS уже запущено у фоні — статті з'являться у стрічці за кілька секунд."
+          : "";
         setStatusMessage(
-          editingSource
+          (editingSource
             ? `Джерело «${payload.name}» (${payload.domain}) успішно оновлено!`
-            : `Нове джерело «${payload.name}» (${payload.domain}) додано до реєстру!`
+            : `Нове джерело «${payload.name}» (${payload.domain}) додано до реєстру!`) + rssNote
         );
         await fetchSources();
       } else {

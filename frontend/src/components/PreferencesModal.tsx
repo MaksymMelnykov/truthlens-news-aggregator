@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { Source } from "@/types";
 import {
   X,
   Sliders,
   Check,
   ShieldCheck,
-  Sparkles,
   Layers,
   Globe2,
 } from "lucide-react";
@@ -27,9 +27,9 @@ const AVAILABLE_CATEGORIES = [
   "Світ",
 ];
 
-const AVAILABLE_SOURCES = [
+const FALLBACK_SOURCES = [
   { name: "Українська правда", domain: "pravda.com.ua", region: "UA" },
-  { name: "BBC News (UA & World)", domain: "bbc.com", region: "ALL" },
+  { name: "BBC News Україна", domain: "bbc.com", region: "UA" },
   { name: "Дзеркало тижня (ZN.UA)", domain: "zn.ua", region: "UA" },
   { name: "УНІАН", domain: "unian.net", region: "UA" },
   { name: "УНН Новини", domain: "unn.ua", region: "UA" },
@@ -43,21 +43,53 @@ const AVAILABLE_SOURCES = [
   { name: "CNN World", domain: "cnn.com", region: "INTL" },
 ];
 
+interface DynamicSourceItem {
+  name: string;
+  domain: string;
+  region: string;
+}
+
 export const PreferencesModal: React.FC<PreferencesModalProps> = ({
   isOpen,
   onClose,
   onSaved,
 }) => {
-  const { user, token, updatePreferences } = useAuth();
+  const { user, token, updatePreferences, apiUrl } = useAuth();
 
+  const [availableSources, setAvailableSources] = useState<DynamicSourceItem[]>(FALLBACK_SOURCES);
   const [selectedCats, setSelectedCats] = useState<string[]>([]);
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [onlyVerified, setOnlyVerified] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  // Динамічне завантаження актуальних джерел із БД (включаючи додані адміністратором)
+  useEffect(() => {
+    if (!isOpen) return;
+    const baseApi = apiUrl.endsWith("/api/v1") ? apiUrl : `${apiUrl}/api/v1`;
+    fetch(`${baseApi}/sources`, { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: Source[] | null) => {
+        if (Array.isArray(data) && data.length > 0) {
+          const filtered = data
+            .filter((s) => !s.is_blacklisted)
+            .map((s) => ({
+              name: s.name,
+              domain: s.domain,
+              region: s.language === "en" ? "INTL" : "UA",
+            }));
+          if (filtered.length > 0) {
+            setAvailableSources(filtered);
+          }
+        }
+      })
+      .catch(() => {
+        // У разі збою мережі лишаємо резервний список
+      });
+  }, [isOpen, apiUrl]);
+
   // Синхронізація з поточними вподобаннями користувача при відкритті
-  React.useEffect(() => {
+  useEffect(() => {
     if (user?.preferences) {
       setSelectedCats(user.preferences.favorite_categories || []);
       setSelectedSources(user.preferences.favorite_sources || []);
@@ -130,7 +162,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            className="p-1.5 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -152,7 +184,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
           <button
             type="button"
             onClick={() => setOnlyVerified(!onlyVerified)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
               onlyVerified ? "bg-cyan-500" : "bg-zinc-800"
             }`}
           >
@@ -184,7 +216,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
                 <button
                   key={cat}
                   onClick={() => toggleCategory(cat)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                     active
                       ? "bg-cyan-500 text-zinc-950 font-bold shadow-md shadow-cyan-500/20"
                       : "bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700"
@@ -198,7 +230,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
           </div>
         </div>
 
-        {/* Секція 3: Улюблені джерела */}
+        {/* Секція 3: Улюблені джерела (динамічно з БД) */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
             <span className="flex items-center gap-1.5">
@@ -212,27 +244,28 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {AVAILABLE_SOURCES.map((src) => {
+            {availableSources.map((src) => {
               const active = selectedSources.includes(src.domain);
               return (
                 <button
                   key={`${src.name}-${src.domain}`}
+                  type="button"
                   onClick={() => toggleSource(src.domain)}
-                  className={`flex flex-col items-start p-2.5 rounded-xl text-left text-xs transition-all border ${
+                  className={`flex flex-col items-start p-2.5 rounded-xl text-left text-xs transition-all border cursor-pointer ${
                     active
                       ? "bg-indigo-500/20 border-indigo-500/50 text-white"
                       : "bg-zinc-950/60 border-zinc-800/80 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                   }`}
                 >
-                  <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center justify-between w-full gap-1">
                     <span className="font-semibold text-zinc-200 truncate">
                       {src.name}
                     </span>
-                    <span className="text-[9px] px-1 rounded bg-zinc-800 text-zinc-400">
+                    <span className="text-[9px] px-1 rounded bg-zinc-800 text-zinc-400 flex-shrink-0">
                       {src.region}
                     </span>
                   </div>
-                  <span className="text-[10px] text-zinc-500 font-mono mt-0.5 truncate">
+                  <span className="text-[10px] text-zinc-500 font-mono mt-0.5 truncate max-w-full">
                     {src.domain}
                   </span>
                 </button>
@@ -253,7 +286,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+            className="px-4 py-2 rounded-xl text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
           >
             Скасувати
           </button>
@@ -261,7 +294,7 @@ export const PreferencesModal: React.FC<PreferencesModalProps> = ({
             type="button"
             onClick={handleSave}
             disabled={isSaving}
-            className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-blue-600 text-zinc-950 hover:from-cyan-400 hover:to-blue-500 transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50"
+            className="px-5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-cyan-500 to-blue-600 text-zinc-950 hover:from-cyan-400 hover:to-blue-500 transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50 cursor-pointer"
           >
             {isSaving ? "Збереження..." : "Зберегти вподобання"}
           </button>
