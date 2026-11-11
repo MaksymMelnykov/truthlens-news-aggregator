@@ -37,6 +37,14 @@ class TrustScoreBreakdown(BaseModel):
         default_factory=list,
         description="Покроковий XAI-аудит 5 компонентів формування Trust Score V4",
     )
+    sentence_analysis: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Пореченкова теплова карта достовірності (оцінка кожного речення 0-100%)",
+    )
+    attribution_analysis: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="NER-аналіз атрибуції цитат, офіційних відомств та анонімних вкидів",
+    )
 
 
 class SourceBase(BaseModel):

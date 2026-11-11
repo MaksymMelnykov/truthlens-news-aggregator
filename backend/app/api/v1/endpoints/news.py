@@ -333,6 +333,8 @@ async def get_article_detail(
         corroboration_summary=str(details.get("corroboration_summary", "")),
         matched_fact_checks=list(details.get("matched_fact_checks", [])),
         xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
+        sentence_analysis=list(details.get("sentence_analysis", [])),
+        attribution_analysis=dict(details.get("attribution_analysis", {})),
     )
 
     article_read = ArticleRead.model_validate(article)

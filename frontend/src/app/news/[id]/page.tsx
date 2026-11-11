@@ -25,7 +25,7 @@ import {
   FileText,
 } from "lucide-react";
 
-type HighlightMode = "all" | "fake" | "real" | "none";
+type HighlightMode = "all" | "heatmap" | "fake" | "real" | "none";
 
 interface HighlightRule {
   phrase: string;
@@ -411,6 +411,17 @@ export default function ArticleDetailPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setHighlightMode("heatmap")}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                    highlightMode === "heatmap"
+                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/30"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  Пореченкова карта
+                </button>
+                <button
+                  type="button"
                   onClick={() => setHighlightMode("real")}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
                     highlightMode === "real"
@@ -446,11 +457,11 @@ export default function ArticleDetailPage() {
             </div>
 
             {/* Кольорова підказка (легенда) */}
-            {highlightMode !== "none" && (
+            {highlightMode !== "none" && highlightMode !== "heatmap" && (
               <div className="flex flex-wrap items-center gap-3 p-3 rounded-2xl bg-zinc-950/80 border border-zinc-800/80 text-xs">
                 <span className="inline-flex items-center gap-1.5 text-emerald-300">
                   <span className="w-3 h-3 rounded bg-emerald-500/30 border-b-2 border-emerald-400" />
-                  Слова, характерні для спокійних фактів
+                  Слова, характерні для спокійних фактів та офіційних відомств
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-amber-300">
                   <span className="w-3 h-3 rounded bg-amber-500/30 border-b-2 border-amber-400" />
@@ -476,14 +487,63 @@ export default function ArticleDetailPage() {
               </div>
             )}
 
-            {/* Абзаци повного тексту статті */}
-            <div className="space-y-4 text-sm sm:text-base text-zinc-200 leading-relaxed font-normal">
-              {paragraphs.map((para, index) => (
-                <p key={index} className="leading-7">
-                  {renderHighlightedParagraph(para)}
-                </p>
-              ))}
-            </div>
+            {/* Абзаци повного тексту статті АБО Пореченкова теплова карта (Sentence-Level Heatmap) */}
+            {highlightMode === "heatmap" && tb.sentence_analysis && tb.sentence_analysis.length > 0 ? (
+              <div className="space-y-3">
+                <div className="p-3 rounded-2xl bg-cyan-500/5 border border-cyan-500/20 text-xs text-cyan-200 flex items-center justify-between gap-2">
+                  <span>
+                    <strong>Пореченкова теплова карта достовірності (Sentence-Level Saliency):</strong> кожне речення оцінено окремо з урахуванням контексту та посилань на джерела.
+                  </span>
+                </div>
+                {tb.sentence_analysis.map((item) => {
+                  const isGood = item.status === "factual";
+                  const isBad = item.status === "manipulative";
+                  return (
+                    <div
+                      key={item.index}
+                      className={`p-3.5 rounded-2xl border-l-4 border transition-all space-y-1.5 ${
+                        isGood
+                          ? "bg-emerald-500/5 border-emerald-500/25 border-l-emerald-400"
+                          : isBad
+                          ? "bg-rose-500/10 border-rose-500/30 border-l-rose-400"
+                          : "bg-amber-500/5 border-amber-500/20 border-l-amber-400"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+                          {item.is_headline ? "Заголовок матеріалу" : `Речення #${item.index}`}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold border ${
+                            isGood
+                              ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                              : isBad
+                              ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                              : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                          }`}
+                        >
+                          {isGood ? "Достовірно" : isBad ? "Ризик маніпуляції" : "Нейтрально"} • {Number(item.score).toFixed(0)}%
+                        </span>
+                      </div>
+                      <p className="text-sm sm:text-base text-zinc-100 leading-relaxed">
+                        {item.sentence}
+                      </p>
+                      <p className="text-xs text-zinc-400 italic">
+                        Пояснення ШІ: {item.reason}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-4 text-sm sm:text-base text-zinc-200 leading-relaxed font-normal">
+                {paragraphs.map((para, index) => (
+                  <p key={index} className="leading-7">
+                    {renderHighlightedParagraph(para)}
+                  </p>
+                ))}
+              </div>
+            )}
 
             {/* Виявлені прийоми маніпуляцій (якщо є) */}
             {tb.manipulation_markers && tb.manipulation_markers.length > 0 && (
@@ -505,13 +565,13 @@ export default function ArticleDetailPage() {
               </div>
             )}
 
-            {/* Згрупований список ключових токенів впливу */}
+            {/* Згрупований список ключових токенів впливу (Контекстний XAI) */}
             {(realTokens.length > 0 || fakeTokens.length > 0) && (
               <div className="pt-4 border-t border-zinc-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/20 space-y-2">
                   <h4 className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
                     <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    Ознаки чесної новини (слова фактів):
+                    Ознаки чесної новини (контекст фактів):
                   </h4>
                   {realTokens.length > 0 ? (
                     <div className="flex flex-wrap gap-1.5">
@@ -552,6 +612,72 @@ export default function ArticleDetailPage() {
                       Підозрілих або маніпулятивних слів не виявлено.
                     </p>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Блок NER-аналізу цитат та верифікації джерел у тексті (Пункт 4) */}
+            {tb.attribution_analysis && (
+              <div className="pt-4 border-t border-zinc-800 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs sm:text-sm font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                    Перевірка цитат і посилань на першоджерела (NER-детектор атрибуції)
+                  </h4>
+                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                    Достовірність атрибуції: {Number(tb.attribution_analysis.attribution_score || 70).toFixed(0)}%
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-300">
+                  {tb.attribution_analysis.summary}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-1.5">
+                    <span className="text-[11px] font-bold text-emerald-300 block">
+                      Офіційні відомства та документальні джерела:
+                    </span>
+                    {tb.attribution_analysis.verified_entities &&
+                    tb.attribution_analysis.verified_entities.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {tb.attribution_analysis.verified_entities.map((ent, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded-md text-[11px] bg-emerald-500/15 text-emerald-200 border border-emerald-500/30"
+                          >
+                            ✓ {ent}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-400">
+                        Прямих назв державних чи міжнародних інституцій у тексті не знайдено.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-2xl bg-zinc-950/80 border border-zinc-800 space-y-1.5">
+                    <span className="text-[11px] font-bold text-amber-300 block">
+                      Псевдоцитати або анонімні посилання:
+                    </span>
+                    {tb.attribution_analysis.unverified_claims &&
+                    tb.attribution_analysis.unverified_claims.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {tb.attribution_analysis.unverified_claims.map((claim, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded-md text-[11px] bg-rose-500/15 text-rose-200 border border-rose-500/30"
+                          >
+                            ⚠ {claim}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-400">
+                        Маніпулятивних посилань на «анонімних інсайдерів» чи чутки не виявлено.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

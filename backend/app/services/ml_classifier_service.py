@@ -12,12 +12,22 @@
 import importlib
 import json
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import joblib
 from pydantic import BaseModel
+
+from app.services.stylometry_service import (
+    CLICKBAIT_PHRASES,
+    EMOTIONAL_MANIPULATION_PHRASES,
+    PROPAGANDA_MARKERS,
+    REPORTING_VERBS_PATTERN,
+    VAGUE_ATTRIBUTION_PHRASES,
+    VERIFIED_INSTITUTION_PATTERNS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +65,7 @@ class MLPredictionResult(BaseModel):
     models_breakdown: Dict[str, float] = {}
     inference_latency_ms: float
     top_tokens: List[TokenContribution] = []
+    sentence_analysis: List[Dict[str, Any]] = []
     explanation_summary: str
 
 
@@ -143,8 +154,13 @@ class MLClassifierService:
         latin_count = sum(1 for ch in text if ("a" <= ch.lower() <= "z"))
         return cyrillic_count >= latin_count
 
-    def _extract_xai_tokens(self, combined_text: str, top_k: int = 6) -> List[TokenContribution]:
-        """Визначає, які саме слова та біграми у вхідному тексті найбільше вплинули на рішення класифікатора."""
+    def _extract_xai_tokens(self, combined_text: str, top_k: int = 8) -> List[TokenContribution]:
+        """
+        Визначає дискримінативні слова та біграми у вхідному тексті з урахуванням:
+        1) Ваг лінійного пояснювача (TF-IDF + LogisticRegression);
+        2) Контекстної уваги речення (Contextual Attention Modulation): перевіряє, в якому саме
+           реченні стоїть слово — поруч із офіційними відомствами/цитатами чи емоційними тригерами.
+        """
         if not self._bundle or "explainer_pipeline" not in self._bundle:
             return []
 
@@ -161,14 +177,51 @@ class MLClassifierService:
             feature_names = tfidf.get_feature_names_out()
             coefs = clf.coef_[0]
 
+            # Розбиваємо текст на речення для контекстної модуляції ваги кожного токена
+            raw_sentences = [
+                s.strip()
+                for s in re.split(r"(?<=[.!?…])\s+", combined_text)
+                if len(s.strip()) >= 12
+            ] or [combined_text]
+
             contributions: List[TokenContribution] = []
+            seen_tokens = set()
+
             for idx in nonzero_indices:
                 token_str = str(feature_names[idx]).strip()
                 if len(token_str) < 4 or token_str.isdigit():
                     continue
                 tfidf_val = float(vec[0, idx])
-                impact = float(coefs[idx]) * tfidf_val
-                if abs(impact) >= 0.08:
+                base_impact = float(coefs[idx]) * tfidf_val
+
+                # Контекстна модуляція (Contextual Saliency): знаходимо речення з цим токеном
+                matching_sents = [s for s in raw_sentences if token_str.lower() in s.lower()]
+                context_sent = matching_sents[0] if matching_sents else combined_text
+
+                has_verified_inst = any(
+                    re.search(pat, context_sent, flags=re.IGNORECASE)
+                    for pat, _ in VERIFIED_INSTITUTION_PATTERNS
+                )
+                has_reporting_verb = bool(REPORTING_VERBS_PATTERN.search(context_sent))
+                has_manipulative_ctx = any(
+                    re.search(pat, context_sent, flags=re.IGNORECASE)
+                    for pat, *_ in (CLICKBAIT_PHRASES + PROPAGANDA_MARKERS + EMOTIONAL_MANIPULATION_PHRASES + VAGUE_ATTRIBUTION_PHRASES)
+                )
+
+                impact = base_impact
+                # Якщо слово статистично мало позитивний (фейковий) коефіцієнт, але вживається
+                # у реченні з офіційним відомством та звітною дією без маніпуляцій — послаблюємо хибний тригер
+                if impact > 0 and has_verified_inst and has_reporting_verb and not has_manipulative_ctx:
+                    impact *= 0.45
+                # Якщо слово стоїть у реченні з клікбейтом/анонімним вкидом — підсилюємо вагу ризику
+                elif impact > 0 and has_manipulative_ctx:
+                    impact *= 1.25
+                # Якщо слово підкріплює факт у реченні з офіційною установою — підсилюємо вагу достовірності
+                elif impact < 0 and (has_verified_inst or has_reporting_verb):
+                    impact *= 1.20
+
+                if abs(impact) >= 0.065:
+                    seen_tokens.add(token_str.lower())
                     contributions.append(
                         TokenContribution(
                             token=token_str,
@@ -177,11 +230,154 @@ class MLClassifierService:
                         )
                     )
 
+            # Додатково додаємо контекстно значущі маркери з тексту, якщо їх не захопив базовий межовий фільтр
+            for pat, label in VERIFIED_INSTITUTION_PATTERNS:
+                m = re.search(pat, combined_text, flags=re.IGNORECASE)
+                if m:
+                    found_word = m.group(0).strip()
+                    if len(found_word) >= 3 and found_word.lower() not in seen_tokens:
+                        seen_tokens.add(found_word.lower())
+                        contributions.append(
+                            TokenContribution(
+                                token=found_word,
+                                weight=-0.24,
+                                direction="real_indicator",
+                            )
+                        )
+
             contributions.sort(key=lambda x: abs(x.weight), reverse=True)
             return contributions[:top_k]
         except Exception as e:
             logger.debug("Помилка витягу XAI-токенів: %s", e)
             return []
+
+    def analyze_sentences(self, title: str, text: str = "", max_sentences: int = 10) -> List[Dict[str, Any]]:
+        """
+        Пореченкова теплова карта достовірності (Sentence-Level Saliency Heatmap).
+        Розбиває новину на окремі речення та оцінює кожне з них за шкалою 0..100%,
+        повертаючи статус ('factual', 'neutral', 'manipulative') та зрозуміле пояснення для читача.
+        """
+        self._ensure_loaded()
+        combined = f"{title.strip()}. {text.strip()}".strip() if text.strip() else title.strip()
+        if not combined:
+            return []
+
+        raw_parts = [
+            s.strip()
+            for s in re.split(r"(?<=[.!?…])\s+|\n+", combined)
+            if len(s.strip()) >= 18
+        ]
+        if not raw_parts:
+            raw_parts = [combined]
+
+        # Забезпечуємо, щоб заголовок завжди був першим елементом аналізу, якщо текст довший
+        sentences = raw_parts[:max_sentences]
+
+        results: List[Dict[str, Any]] = []
+        hybrid_pipe = self._bundle.get("hybrid_pipeline") if self._bundle else None
+        ukr_pipe = self._bundle.get("ukr_subword_pipeline") if self._bundle else None
+
+        for idx, sent in enumerate(sentences):
+            base_real_prob = 0.72
+            try:
+                if hybrid_pipe is not None and ukr_pipe is not None:
+                    p_fake_h = float(hybrid_pipe.predict_proba([sent])[0][1])
+                    p_fake_u = float(ukr_pipe.predict_proba([sent])[0][1])
+                    base_real_prob = 1.0 - (0.55 * p_fake_u + 0.45 * p_fake_h)
+                elif hybrid_pipe is not None:
+                    base_real_prob = 1.0 - float(hybrid_pipe.predict_proba([sent])[0][1])
+            except Exception:
+                base_real_prob = 0.72
+
+            sent_score = base_real_prob * 100.0
+            reasons: List[str] = []
+
+            # Контекстні перевірки речення
+            matched_insts = [
+                label
+                for pat, label in VERIFIED_INSTITUTION_PATTERNS
+                if re.search(pat, sent, flags=re.IGNORECASE)
+            ]
+            has_rep_verb = bool(REPORTING_VERBS_PATTERN.search(sent))
+            has_numbers = bool(re.search(r"\b\d+(?:[.,]\d+)?\s*(?:%|млн|млрд|тис|грн|дол|євро|км|год|р\.)?\b", sent, flags=re.IGNORECASE))
+
+            matched_clickbait = [
+                label for pat, label, *_ in CLICKBAIT_PHRASES if re.search(pat, sent, flags=re.IGNORECASE)
+            ]
+            matched_prop = [
+                label for pat, label, *_ in PROPAGANDA_MARKERS if re.search(pat, sent, flags=re.IGNORECASE)
+            ]
+            matched_emot = [
+                label for pat, label, *_ in EMOTIONAL_MANIPULATION_PHRASES if re.search(pat, sent, flags=re.IGNORECASE)
+            ]
+            matched_vague = [
+                label for pat, label, *_ in VAGUE_ATTRIBUTION_PHRASES if re.search(pat, sent, flags=re.IGNORECASE)
+            ]
+            excessive_punct = bool(re.search(r"(!{2,}|\?{2,}|\?!|!\?)", sent))
+
+            if matched_insts:
+                sent_score += 12.0
+                reasons.append(f"посилання на офіційне джерело ({matched_insts[0]})")
+            if has_rep_verb:
+                sent_score += 5.0
+                if not reasons:
+                    reasons.append("наявна пряма атрибуція заяви або дії")
+            if has_numbers and not (matched_clickbait or matched_prop):
+                sent_score += 4.0
+                reasons.append("конкретні кількісні чи датовані факти")
+
+            if matched_prop:
+                sent_score -= 38.0
+                reasons.append(f"пропагандистський штамп («{matched_prop[0]}»)")
+            if matched_clickbait:
+                sent_score -= 26.0
+                reasons.append(f"клікбейтна конструкція («{matched_clickbait[0]}»)")
+            if matched_emot:
+                sent_score -= 24.0
+                reasons.append(f"емоційне нагнітання («{matched_emot[0]}»)")
+            if matched_vague:
+                sent_score -= 20.0
+                reasons.append(f"анонімна/розмита атрибуція («{matched_vague[0]}»)")
+            if excessive_punct:
+                sent_score -= 14.0
+                reasons.append("надмірна емоційна пунктуація")
+
+            sent_score = round(max(5.0, min(98.0, sent_score)), 1)
+
+            if sent_score >= 72.0:
+                status = "factual"
+                reason_str = (
+                    "Висока достовірність: " + ", ".join(reasons[:2]) + "."
+                    if reasons
+                    else "Стриманий інформаційний виклад без ознак емоційної маніпуляції."
+                )
+            elif sent_score >= 48.0:
+                status = "neutral"
+                reason_str = (
+                    "Нейтральний/оціночний контекст: " + ", ".join(reasons[:2]) + "."
+                    if reasons
+                    else "Описове речення без прямих посилань на першоджерела або критичних тригерів."
+                )
+            else:
+                status = "manipulative"
+                reason_str = (
+                    "Ризик маніпуляції: " + ", ".join(reasons[:2]) + "."
+                    if reasons
+                    else "Модель виявила лексичні ознаки сенсаційності або неперевіреного вкиду."
+                )
+
+            results.append(
+                {
+                    "index": idx + 1,
+                    "sentence": sent,
+                    "score": sent_score,
+                    "status": status,
+                    "reason": reason_str,
+                    "is_headline": idx == 0 and sent.startswith(title.strip()[:25]),
+                }
+            )
+
+        return results
 
     def predict(self, title: str, text: str = "") -> MLPredictionResult:
         """
@@ -256,6 +452,7 @@ class MLClassifierService:
             auth_score = round(real_prob * 100.0, 1)
             latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
             tokens = self._extract_xai_tokens(combined)
+            sentence_analysis = self.analyze_sentences(title, text)
 
             models_breakdown = {
                 "ukr-roberta-base": round((1.0 - ukr_fake_prob) * 100.0, 1),
@@ -273,6 +470,7 @@ class MLClassifierService:
                 models_breakdown=models_breakdown,
                 inference_latency_ms=latency_ms,
                 top_tokens=tokens,
+                sentence_analysis=sentence_analysis,
                 explanation_summary=self._format_explanation(auth_score, tokens, models_breakdown),
             )
 
@@ -282,6 +480,7 @@ class MLClassifierService:
             auth_score = round(real_prob * 100.0, 1)
             latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
             tokens = self._extract_xai_tokens(combined)
+            sentence_analysis = self.analyze_sentences(title, text)
             return MLPredictionResult(
                 ml_authenticity_score=auth_score,
                 fake_probability=round(hybrid_fake_prob, 4),
@@ -292,6 +491,7 @@ class MLClassifierService:
                 models_breakdown={"TruthLens Hybrid Ensemble": auth_score},
                 inference_latency_ms=latency_ms,
                 top_tokens=tokens,
+                sentence_analysis=sentence_analysis,
                 explanation_summary=self._format_explanation(auth_score, tokens),
             )
 

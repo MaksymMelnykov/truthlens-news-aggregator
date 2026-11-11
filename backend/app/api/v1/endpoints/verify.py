@@ -129,6 +129,8 @@ async def verify_custom_text(
         corroboration_summary=str(details.get("corroboration_summary", "")),
         matched_fact_checks=list(details.get("matched_fact_checks", [])),
         xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
+        sentence_analysis=list(details.get("sentence_analysis", [])),
+        attribution_analysis=dict(details.get("attribution_analysis", {})),
     )
 
     # Зберігаємо аналітичний звіт у таблицю analysis_reports
@@ -279,6 +281,8 @@ async def verify_custom_url(
         corroboration_summary=str(details.get("corroboration_summary", "")),
         matched_fact_checks=list(details.get("matched_fact_checks", [])),
         xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
+        sentence_analysis=list(details.get("sentence_analysis", [])),
+        attribution_analysis=dict(details.get("attribution_analysis", {})),
     )
 
     report_entry = AnalysisReport(
@@ -349,7 +353,14 @@ async def _reconstruct_report_response(
 
     # Якщо повний XAI-знімок вже збережений у БД — повертаємо його миттєво без повторного аналізу
     if report.xai_data and isinstance(report.xai_data, dict) and report.xai_data.get("xai_reasoning_steps"):
-        breakdown = TrustScoreBreakdown(**report.xai_data)
+        xai_dict = dict(report.xai_data)
+        if not xai_dict.get("sentence_analysis"):
+            xai_dict["sentence_analysis"] = ml_classifier_service.analyze_sentences(title_str, body_str)
+        if not xai_dict.get("attribution_analysis"):
+            from app.services.stylometry_service import stylometry_service
+
+            xai_dict["attribution_analysis"] = stylometry_service.analyze_attribution(title_str, body_str)
+        breakdown = TrustScoreBreakdown(**xai_dict)
     else:
         _, _, details = await calculate_multi_factor_trust(
             title=title_str,
@@ -375,6 +386,8 @@ async def _reconstruct_report_response(
             corroboration_summary=str(details.get("corroboration_summary", "")),
             matched_fact_checks=list(details.get("matched_fact_checks", [])),
             xai_reasoning_steps=list(details.get("xai_reasoning_steps", [])),
+            sentence_analysis=list(details.get("sentence_analysis", [])),
+            attribution_analysis=dict(details.get("attribution_analysis", {})),
         )
         try:
             report.xai_data = breakdown.model_dump(mode="json")

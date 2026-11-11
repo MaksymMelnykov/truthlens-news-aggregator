@@ -570,6 +570,128 @@ function VerifyContent() {
                 </div>
               )}
 
+            {/* NER-детектор цитат та посилань на офіційні джерела */}
+            {result.trust_breakdown.attribution_analysis && (
+              <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    Перевірка цитат і посилань на першоджерела (NER-детектор атрибуції):
+                  </h4>
+                  <span className="px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
+                    Достовірність атрибуції:{" "}
+                    {Number(result.trust_breakdown.attribution_analysis.attribution_score || 70).toFixed(0)}%
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-300">
+                  {result.trust_breakdown.attribution_analysis.summary}
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1.5">
+                    <span className="text-[11px] font-semibold text-emerald-300 block">
+                      Офіційні відомства та документальні джерела:
+                    </span>
+                    {result.trust_breakdown.attribution_analysis.verified_entities &&
+                    result.trust_breakdown.attribution_analysis.verified_entities.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {result.trust_breakdown.attribution_analysis.verified_entities.map((ent, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded text-[11px] bg-emerald-500/15 text-emerald-200 border border-emerald-500/30"
+                          >
+                            ✓ {ent}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-400">
+                        Прямих згадок офіційних державних чи міжнародних установ не знайдено.
+                      </p>
+                    )}
+                  </div>
+                  <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1.5">
+                    <span className="text-[11px] font-semibold text-amber-300 block">
+                      Псевдоцитати або анонімні посилання:
+                    </span>
+                    {result.trust_breakdown.attribution_analysis.unverified_claims &&
+                    result.trust_breakdown.attribution_analysis.unverified_claims.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {result.trust_breakdown.attribution_analysis.unverified_claims.map((claim, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded text-[11px] bg-rose-500/15 text-rose-200 border border-rose-500/30"
+                          >
+                            ⚠ {claim}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-zinc-400">
+                        Маніпулятивних посилань на «анонімних інсайдерів» чи чутки не виявлено.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Пореченкова теплова карта достовірності (Sentence-Level Heatmap) */}
+            {result.trust_breakdown.sentence_analysis &&
+              result.trust_breakdown.sentence_analysis.length > 0 && (
+                <div className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-3">
+                  <div className="space-y-1">
+                    <h4 className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                      <FileText className="w-4 h-4 text-cyan-400" />
+                      Пореченкова теплова карта достовірності (оцінка кожного речення):
+                    </h4>
+                    <p className="text-[11px] text-zinc-400">
+                      Штучний інтелект оцінив кожне речення за шкалою 0–100%, враховуючи контекст, посилання на джерела та емоційність.
+                    </p>
+                  </div>
+                  <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                    {result.trust_breakdown.sentence_analysis.map((item) => {
+                      const isGood = item.status === "factual";
+                      const isBad = item.status === "manipulative";
+                      return (
+                        <div
+                          key={item.index}
+                          className={`p-3.5 rounded-xl border-l-4 border space-y-1.5 ${
+                            isGood
+                              ? "bg-emerald-500/5 border-emerald-500/20 border-l-emerald-400"
+                              : isBad
+                              ? "bg-rose-500/10 border-rose-500/30 border-l-rose-400"
+                              : "bg-amber-500/5 border-amber-500/20 border-l-amber-400"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-bold uppercase text-zinc-400">
+                              {item.is_headline ? "Заголовок" : `Речення #${item.index}`}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${
+                                isGood
+                                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                                  : isBad
+                                  ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+                                  : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                              }`}
+                            >
+                              {isGood ? "Достовірно" : isBad ? "Ризик маніпуляції" : "Нейтрально"} • {Number(item.score).toFixed(0)}%
+                            </span>
+                          </div>
+                          <p className="text-xs sm:text-sm text-zinc-100 leading-relaxed">
+                            {item.sentence}
+                          </p>
+                          <p className="text-[11px] text-zinc-400 italic">
+                            Пояснення ШІ: {item.reason}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
             {/* Покрокове пояснення 5 етапів перевірки простими словами */}
             {result.trust_breakdown.xai_reasoning_steps &&
               result.trust_breakdown.xai_reasoning_steps.length > 0 && (

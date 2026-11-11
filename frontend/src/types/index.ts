@@ -50,6 +50,25 @@ export interface XAIReasoningStep {
   summary: string;
 }
 
+export interface SentenceAnalysisItem {
+  index: number;
+  sentence: string;
+  score: number;
+  status: "factual" | "neutral" | "manipulative" | string;
+  reason: string;
+  is_headline?: boolean;
+}
+
+export interface AttributionAnalysis {
+  status: "verified" | "unverified" | "mixed" | "neutral" | string;
+  attribution_score: number;
+  verified_entities: string[];
+  unverified_claims: string[];
+  direct_quotes_count: number;
+  reporting_verbs_count: number;
+  summary: string;
+}
+
 export interface TrustScoreBreakdown {
   score: number;
   verdict: "Verified" | "Caution" | "Suspicious" | "High Risk" | string;
@@ -66,6 +85,8 @@ export interface TrustScoreBreakdown {
   corroboration_summary?: string;
   matched_fact_checks?: SemanticFactCheckMatch[];
   xai_reasoning_steps?: XAIReasoningStep[];
+  sentence_analysis?: SentenceAnalysisItem[];
+  attribution_analysis?: AttributionAnalysis;
 }
 
 export interface ArticleDetail extends Article {

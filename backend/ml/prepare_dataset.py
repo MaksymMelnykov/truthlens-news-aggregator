@@ -499,14 +499,10 @@ def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, A
         os.chdir(backend_root)
 
         from sqlalchemy import text
-        from sqlalchemy.ext.asyncio import create_async_engine
-        from app.core.config import Settings
-
-        cfg = Settings(_env_file=str(BASE_ML_DIR.parent / ".env"))
-        engine = create_async_engine(cfg.DATABASE_URL, echo=False)
+        from app.db.session import engine
 
         async with engine.connect() as conn:
-            # 1. Витягуємо достовірні статті з таблиці articles
+            # 1. Витягуємо достовірні статті з таблиці articles (хмарна БД Neon.tech PostgreSQL)
             res_real = await conn.execute(
                 text(
                     """
@@ -514,7 +510,7 @@ def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, A
                     FROM articles
                     WHERE verdict = 'Verified' AND trust_score >= 82.0
                     ORDER BY published_at DESC
-                    LIMIT 150
+                    LIMIT 750
                     """
                 )
             )
@@ -537,8 +533,8 @@ def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, A
                     """
                     SELECT title, summary, full_text, domain, category, language, trust_score, verdict
                     FROM articles
-                    WHERE verdict = 'High Risk' OR trust_score <= 35.0
-                    LIMIT 60
+                    WHERE verdict = 'High Risk' OR trust_score <= 38.0
+                    LIMIT 250
                     """
                 )
             )
@@ -562,7 +558,7 @@ def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, A
                     SELECT claim, explanation, fact_checker, rating, language
                     FROM fact_check_claims
                     ORDER BY created_at DESC
-                    LIMIT 150
+                    LIMIT 400
                     """
                 )
             )
@@ -622,16 +618,18 @@ def build_and_save_dataset() -> Dict[str, Any]:
     unique_real = dedup(all_real)
     unique_fake = dedup(all_fake)
 
-    # Для забезпечення репрезентативної вибірки та балансу класів розширюємо корпус
-    # варіативними комбінаціями заголовків та контекстних підводок, якщо записів менше 120 на клас
-    target_per_class = max(len(unique_real), len(unique_fake), 120)
+    # Формуємо збалансовану вибірку до 600 Real + 600 Fake (1200+ записів) з різноманітними контекстами
+    target_per_class = min(600, max(len(unique_real), len(unique_fake), 400))
 
     real_prefixes = [
-        "Офіційно: ",
-        "За даними відомства: ",
-        "Огляд подій: ",
-        "Аналітичний звіт: ",
-        "Пресреліз: ",
+        "Офіційне повідомлення: ",
+        "За даними профільного відомства: ",
+        "Аналітичний огляд: ",
+        "Офіційний пресреліз: ",
+        "Підсумки моніторингу: ",
+        "Згідно з рішенням регулятора: ",
+        "Статистичне зведення: ",
+        "Коментар пресслужби: ",
     ]
     fake_prefixes = [
         "ТЕРМІНОВО! ",
@@ -639,6 +637,18 @@ def build_and_save_dataset() -> Dict[str, Any]:
         "Приховують від народу: ",
         "СЕНСАЦІЯ!! ",
         "Інсайдери розкрили: ",
+        "Анонімні джерела в кулуарах: ",
+        "ПАНІКА В МЕРЕЖІ! ",
+        "Вся правда, яку замовчують: ",
+        "Ексклюзивний злив із закритої наради: ",
+        "УВАГА! Таємний наказ вже з понеділка: ",
+    ]
+    fake_suffixes = [
+        "Як стверджують анонімні джерела в кулуарах, влада ретельно приховує ці секретні дані від громадян!",
+        "У соціальних мережах та анонімних телеграм-каналах спалахнула паніка, поширте поки не видалили!",
+        "Жодних офіційних документів немає, але інсайдери запевняють, що на нас чекає тотальна катастрофа!",
+        "Невідомі експерти заявляють про приховану змову та закликають терміново знімати готівку з карток!",
+        "Деталі вражають — чергова маніпуляція без жодного посилання на перевірених спікерів чи відомства!",
     ]
 
     idx = 0
@@ -648,7 +658,7 @@ def build_and_save_dataset() -> Dict[str, Any]:
         prefix = real_prefixes[idx % len(real_prefixes)]
         unique_real.append({
             "title": f"{prefix}{template['title']}",
-            "text": f"{template['text']} Інформацію підтверджено у відповідних офіційних джерелах.",
+            "text": f"{template['text']} Інформацію офіційно підтверджено у звіті пресслужби відповідного відомства.",
             "source": template["source"],
             "category": template["category"],
             "language": template["language"],
@@ -661,9 +671,10 @@ def build_and_save_dataset() -> Dict[str, Any]:
     while len(unique_fake) < target_per_class and base_fake_len > 0:
         template = unique_fake[idx % base_fake_len]
         prefix = fake_prefixes[idx % len(fake_prefixes)]
+        suffix = fake_suffixes[idx % len(fake_suffixes)]
         unique_fake.append({
-            "title": f"{prefix}{template['title']}",
-            "text": f"{template['text']} Як стверджують анонімні джерела, влада приховує ці секретні дані від громадян!",
+            "title": f"{prefix}{template['title']} (#{idx + 1})",
+            "text": f"{template['text']} {suffix}",
             "source": template["source"],
             "category": template["category"],
             "language": template["language"],

@@ -401,6 +401,8 @@ async def calculate_multi_factor_trust(
             "corroboration_summary": "Джерело заблоковане у реєстрі дезінформації.",
             "matched_fact_checks": [],
             "xai_reasoning_steps": xai_steps,
+            "sentence_analysis": ml_res.sentence_analysis,
+            "attribution_analysis": sty_res.attribution_analysis,
         }
 
     # 3. Звірка з базою фактчеків (лексична + семантична в pgvector)
@@ -502,6 +504,8 @@ async def calculate_multi_factor_trust(
             "corroboration_summary": reason,
             "matched_fact_checks": matched_fact_checks_dicts,
             "xai_reasoning_steps": xai_steps,
+            "sentence_analysis": ml_res.sentence_analysis,
+            "attribution_analysis": sty_res.attribution_analysis,
         }
 
     # 4. Ефективна оцінка ML та крос-верифікація між ЗМІ через pgvector
@@ -682,6 +686,8 @@ async def calculate_multi_factor_trust(
         "corroboration_summary": corroboration_summary,
         "matched_fact_checks": matched_fact_checks_dicts,
         "xai_reasoning_steps": xai_steps,
+        "sentence_analysis": ml_res.sentence_analysis,
+        "attribution_analysis": sty_res.attribution_analysis,
     }
 
     return trust_score, verdict, breakdown
