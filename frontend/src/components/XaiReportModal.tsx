@@ -1,12 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
+import React from "react";
 import Link from "next/link";
 import { TrustScoreBreakdown } from "@/types";
 import { TrustBadge } from "./TrustBadge";
 import {
-  X,
   Fingerprint,
   AlertTriangle,
   PieChart,
@@ -14,10 +12,22 @@ import {
   CheckCircle2,
   Search,
   ExternalLink,
-  RefreshCw,
   Globe,
   FileText,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/state-displays";
+import { cn } from "@/lib/utils";
 
 export interface XaiModalData {
   article_id?: number;
@@ -43,54 +53,29 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
   data,
   error = null,
 }) => {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen || !mounted) return null;
-
   const tb = data?.trust_breakdown;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-zinc-950/80 backdrop-blur-md animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <div
-        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl border border-zinc-800 bg-zinc-900 shadow-2xl shadow-cyan-950/40 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Шапка модального вікна */}
-        <div className="flex items-start justify-between gap-4 px-5 sm:px-7 py-4 sm:py-5 border-b border-zinc-800 bg-zinc-950/60">
-          <div className="space-y-1 min-w-0">
-            <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-400">
-              <Fingerprint className="w-4 h-4" />
-              <span>Зрозумілий розбір достовірності (Пояснювальний ШІ)</span>
-            </div>
-            <h2 className="text-base sm:text-xl font-bold text-white leading-snug line-clamp-2">
-              {data?.title || "Завантаження розбору новини..."}
-            </h2>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-400">
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto p-0 gap-0">
+        <DialogHeader className="p-5 sm:p-6 border-b border-border bg-secondary/40 pr-12">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Badge variant="secondary">
+              <Fingerprint className="size-3.5 text-primary" />
+              <span>Звіт пояснювального ШІ (XAI Audit)</span>
+            </Badge>
+            {tb && <TrustBadge score={tb.score} verdict={tb.verdict} size="md" />}
+          </div>
+          <DialogTitle className="text-base sm:text-xl leading-snug pt-1">
+            {data?.title || "Аналітичний розбір достовірності публікації"}
+          </DialogTitle>
+          <DialogDescription asChild>
+            <div className="flex flex-wrap items-center gap-3 pt-1 text-xs text-muted-foreground">
               {data?.domain && (
-                <span className="inline-flex items-center gap-1">
-                  <Globe className="w-3.5 h-3.5 text-zinc-500" />
-                  Джерело: <strong className="text-zinc-200">{data.domain}</strong>
+                <span className="inline-flex items-center gap-1.5">
+                  <Globe className="size-3.5 text-primary" />
+                  <span>Джерело:</span>
+                  <strong className="font-mono text-foreground">{data.domain}</strong>
                 </span>
               )}
               {data?.url && (
@@ -98,522 +83,392 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                   href={data.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-cyan-400 hover:underline"
+                  className="inline-flex items-center gap-1 text-primary hover:underline font-medium"
                 >
-                  <span>Відкрити оригінал</span>
-                  <ExternalLink className="w-3 h-3" />
+                  <span>Першоджерело</span>
+                  <ExternalLink className="size-3.5" />
                 </a>
               )}
               {data?.article_id && (
-                <Link
-                  href={`/news/${data.article_id}`}
-                  onClick={onClose}
-                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500 hover:text-zinc-950 font-semibold transition-colors"
-                >
-                  <FileText className="w-3 h-3" />
-                  <span>Повний текст і підсвітка ШІ →</span>
-                </Link>
+                <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
+                  <Link href={`/news/${data.article_id}`} onClick={onClose}>
+                    <FileText className="size-3.5 text-accent" />
+                    <span>Повний текст і підсвітка ШІ</span>
+                  </Link>
+                </Button>
               )}
             </div>
-          </div>
+          </DialogDescription>
+        </DialogHeader>
 
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {tb && <TrustBadge score={tb.score} verdict={tb.verdict} size="md" />}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 transition-colors"
-              title="Закрити вікно (Esc)"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Тіло модального вікна зі скролом */}
-        <div className="overflow-y-auto p-5 sm:p-7 space-y-5">
+        <div className="p-5 sm:p-6 flex flex-col gap-5">
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-16 text-zinc-400 space-y-3">
-              <RefreshCw className="w-8 h-8 animate-spin text-cyan-400" />
-              <p className="text-sm">Завантажуємо збережений розбір...</p>
+            <div className="flex flex-col gap-4" aria-busy="true">
+              <Skeleton className="h-20 w-full rounded-2xl" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {Array.from({ length: 4 }).map((_, idx) => (
+                  <Skeleton key={idx} className="h-28 w-full rounded-2xl" />
+                ))}
+              </div>
+              <Skeleton className="h-36 w-full rounded-2xl" />
             </div>
           ) : error ? (
-            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-              <span>{error}</span>
-            </div>
+            <ErrorState
+              title="Не вдалося завантажити XAI-розбір"
+              description={error}
+            />
           ) : tb ? (
             <>
-              {/* Головне пояснення простими словами */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-cyan-500/5 border border-cyan-500/20 space-y-1.5">
-                <h4 className="text-xs sm:text-sm font-bold text-cyan-300 flex items-center gap-2">
-                  <Fingerprint className="w-4 h-4 text-cyan-400" />
-                  Короткий висновок простими словами:
-                </h4>
-                <p className="text-xs sm:text-sm text-zinc-200 leading-relaxed">
+              <Card className="p-4 sm:p-5 bg-secondary/50 gap-2">
+                <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-primary">
+                  <Fingerprint className="size-4" />
+                  <span>Підсумковий висновок верифікації</span>
+                </div>
+                <p className="text-xs sm:text-sm text-foreground leading-relaxed max-w-[72ch]">
                   {tb.explanation}
                 </p>
-              </div>
+              </Card>
 
-              {/* 4 зрозумілі показники */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 space-y-1.5">
-                  <span className="text-xs font-semibold text-zinc-200">
-                    1. Спокійний тон тексту
-                  </span>
-                  <div className="text-xl font-bold text-cyan-400 font-mono">
-                    {tb.stylometry_score.toFixed(0)}%
-                  </div>
-                  <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="bg-cyan-500 h-full rounded-full"
-                      style={{ width: `${tb.stylometry_score}%` }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Без кричущих заголовків і тиску на емоції
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 space-y-1.5">
-                  <span className="text-xs font-semibold text-zinc-200">
-                    2. Надійність видання
-                  </span>
-                  <div className="text-xl font-bold text-emerald-400 font-mono">
-                    {tb.source_reputation_score.toFixed(0)}%
-                  </div>
-                  <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="bg-emerald-500 h-full rounded-full"
-                      style={{ width: `${tb.source_reputation_score}%` }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Чи дотримується сайт журналістських стандартів
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 space-y-1.5">
-                  <span className="text-xs font-semibold text-zinc-200">
-                    3. Перевірка ШІ на правдивість
-                  </span>
-                  <div className="text-xl font-bold text-indigo-400 font-mono">
-                    {tb.ml_authenticity_score.toFixed(0)}%
-                  </div>
-                  <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="bg-indigo-500 h-full rounded-full"
-                      style={{ width: `${tb.ml_authenticity_score}%` }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Чи схожий текст на реальні факти, а не на вигадку
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 space-y-1.5">
-                  <span className="text-xs font-semibold text-zinc-200">
-                    4. Підтвердження в інших ЗМІ
-                  </span>
-                  <div className="text-xl font-bold text-purple-400 font-mono">
-                    {tb.corroboration_score.toFixed(0)}%
-                  </div>
-                  <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="bg-purple-500 h-full rounded-full"
-                      style={{ width: `${tb.corroboration_score}%` }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-zinc-400">
-                    Чи повідомляють про цю подію інші незалежні медіа
-                  </p>
-                </div>
+                {[
+                  {
+                    title: "1. Нейтральність стилю",
+                    score: tb.stylometry_score,
+                    desc: "Відсутність клікбейту та емоційного тиску",
+                  },
+                  {
+                    title: "2. Репутація домену",
+                    score: tb.source_reputation_score,
+                    desc: "Дотримання редакційних стандартів",
+                  },
+                  {
+                    title: "3. Автентичність (NLP)",
+                    score: tb.ml_authenticity_score,
+                    desc: "Оцінка ансамблю мовних моделей",
+                  },
+                  {
+                    title: "4. Крос-верифікація",
+                    score: tb.corroboration_score,
+                    desc: "Підтвердження в незалежних медіа",
+                  },
+                ].map((metric) => (
+                  <Card key={metric.title} className="p-4 gap-2 bg-card">
+                    <span className="text-xs font-semibold text-foreground">
+                      {metric.title}
+                    </span>
+                    <div className="text-2xl font-bold font-mono tabular-nums text-primary">
+                      {metric.score.toFixed(0)}%
+                    </div>
+                    <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-primary h-full rounded-full"
+                        style={{ width: `${Math.min(100, Math.max(4, metric.score))}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      {metric.desc}
+                    </p>
+                  </Card>
+                ))}
               </div>
 
-              {/* Виявлені маркери маніпуляцій */}
               {tb.manipulation_markers && tb.manipulation_markers.length > 0 && (
-                <div className="p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20 space-y-2">
-                  <h4 className="text-xs font-semibold text-rose-400 flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4" />
-                    На що варто звернути увагу (виявлені емоційні чи підозрілі прийоми):
-                  </h4>
+                <Card className="p-4 border-destructive/40 bg-destructive/10 gap-2.5">
+                  <div className="flex items-center gap-2 text-xs font-bold text-destructive-foreground">
+                    <AlertTriangle className="size-4 text-destructive" />
+                    <span>Виявлені маркери маніпуляцій або емоційного тиску</span>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {tb.manipulation_markers.map((marker, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/10 text-rose-300 border border-rose-500/30"
-                      >
+                      <Badge key={idx} variant="destructive">
                         {marker}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
-                </div>
+                </Card>
               )}
 
-              {/* Оцінка трьох незалежних ШІ-експертів простими словами */}
               {tb.models_breakdown && Object.keys(tb.models_breakdown).length > 0 && (
-                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-3">
+                <Card className="p-4 sm:p-5 gap-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                    <h4 className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
-                      <PieChart className="w-4 h-4 text-indigo-400" />
-                      Як незалежні ШІ-експерти оцінили цей текст:
-                    </h4>
-                    <span className="text-[11px] text-zinc-400">
-                      Чим вищий відсоток — тим більше текст схожий на чесну новину
+                    <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
+                      <PieChart className="size-4 text-primary" />
+                      <span>Декомпозиція оцінок ансамблю ШІ-моделей</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      Імовірність достовірного інформаційного матеріалу
                     </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {Object.entries(tb.models_breakdown).map(([modelKey, modelScore]) => {
                       const friendlyTitle =
                         modelKey === "ukr_roberta_base" || modelKey === "ukr-roberta-base"
-                          ? "Український мовний ШІ"
+                          ? "Українська мовна модель (ukr-roberta)"
                           : modelKey === "xlm_roberta_base" || modelKey === "xlm-roberta-base"
-                          ? "Міжнародний мовний ШІ"
+                          ? "Мультимовна модель (XLM-RoBERTa)"
                           : modelKey.toLowerCase().includes("ensemble")
-                          ? "Спільний висновок ШІ"
-                          : "Детектор фейків та вкидів";
+                          ? "Гібридний ансамбль TruthLens"
+                          : modelKey;
 
-                      const friendlySubtitle =
-                        modelKey === "ukr_roberta_base" || modelKey === "ukr-roberta-base"
-                          ? "Розуміє особливості українських новин і мовних зворотів"
-                          : modelKey === "xlm_roberta_base" || modelKey === "xlm-roberta-base"
-                          ? "Порівнює матеріал зі світовими стандартами журналістики"
-                          : "Перевіряє текст на типові шаблони маніпуляцій";
-
+                      const val = Number(modelScore);
                       return (
-                        <div
-                          key={modelKey}
-                          className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1.5"
-                        >
+                        <Card key={modelKey} className="p-3.5 bg-secondary/40 gap-2">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-semibold text-zinc-200">
+                            <span className="text-xs font-semibold text-foreground">
                               {friendlyTitle}
                             </span>
-                            <span className="text-xs font-bold font-mono text-indigo-300">
-                              {Number(modelScore).toFixed(0)}%
+                            <span className="text-xs font-bold font-mono tabular-nums text-primary">
+                              {val.toFixed(0)}%
                             </span>
                           </div>
-                          <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden">
+                          <div className="w-full bg-background h-1.5 rounded-full overflow-hidden">
                             <div
-                              className={`h-full rounded-full ${
-                                Number(modelScore) >= 75
-                                  ? "bg-emerald-500"
-                                  : Number(modelScore) >= 50
-                                  ? "bg-amber-500"
-                                  : "bg-rose-500"
-                              }`}
-                              style={{
-                                width: `${Math.min(100, Math.max(5, Number(modelScore)))}%`,
-                              }}
+                              className={cn(
+                                "h-full rounded-full",
+                                val >= 75
+                                  ? "bg-verified"
+                                  : val >= 50
+                                  ? "bg-accent"
+                                  : "bg-destructive"
+                              )}
+                              style={{ width: `${Math.min(100, Math.max(5, val))}%` }}
                             />
                           </div>
-                          <p className="text-[11px] text-zinc-400 leading-snug">
-                            {friendlySubtitle}
-                          </p>
-                        </div>
+                        </Card>
                       );
                     })}
                   </div>
-                </div>
+                </Card>
               )}
 
-              {/* Слова в тексті, на які звернув увагу ШІ */}
               {tb.xai_top_tokens && tb.xai_top_tokens.length > 0 && (
-                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-2.5">
-                  <div className="space-y-1">
-                    <h4 className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
-                      <Sparkles className="w-4 h-4 text-cyan-400" />
-                      На які слова в тексті звернув увагу штучний інтелект:
-                    </h4>
-                    <p className="text-[11px] text-zinc-400">
-                      Зеленим позначені слова, характерні для спокійних фактів, а червоним — слова, що часто зустрічаються у чутках або сенсаціях.
+                <Card className="p-4 sm:p-5 gap-3">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
+                      <Sparkles className="size-4 text-accent" />
+                      <span>Ключові токени впливу на рішення класифікатора</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Слова, які найбільше вплинули на підсумковий індекс достовірності
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {tb.xai_top_tokens.map((tok, idx) => {
                       const isFake = tok.direction === "fake_indicator";
                       return (
-                        <span
+                        <Badge
                           key={idx}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-medium border ${
-                            isFake
-                              ? "bg-rose-500/10 text-rose-300 border-rose-500/30"
-                              : "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                          }`}
+                          variant={isFake ? "destructive" : "verified"}
+                          className="px-3 py-1"
                         >
                           <span>«{tok.token}»</span>
-                          <span className="text-[10px] opacity-85">
-                            {isFake ? "— ознака емоцій / ризику" : "— ознака фактів"}
+                          <span className="opacity-80 text-[10px]">
+                            {isFake ? "(ризик маніпуляції)" : "(фактичний маркер)"}
                           </span>
-                        </span>
+                        </Badge>
                       );
                     })}
                   </div>
-                </div>
+                </Card>
               )}
 
-              {/* NER-детектор цитат та верифікації першоджерел */}
               {tb.attribution_analysis && (
-                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-2.5">
+                <Card className="p-4 sm:p-5 gap-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h4 className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      Перевірка цитат і посилань на офіційні джерела (NER-детектор):
-                    </h4>
-                    <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-mono font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
-                      Достовірність атрибуції: {Number(tb.attribution_analysis.attribution_score || 70).toFixed(0)}%
-                    </span>
+                    <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
+                      <CheckCircle2 className="size-4 text-verified" />
+                      <span>Верифікація цитат і першоджерел (NER)</span>
+                    </div>
+                    <Badge variant="secondary" className="font-mono tabular-nums">
+                      Достовірність атрибуції:{" "}
+                      {Number(tb.attribution_analysis.attribution_score || 70).toFixed(0)}%
+                    </Badge>
                   </div>
-                  <p className="text-xs text-zinc-300">{tb.attribution_analysis.summary}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                    <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1.5">
-                      <span className="text-[11px] font-semibold text-emerald-300 block">
-                        Верифіковані установи та документи:
+                  <p className="text-xs text-muted-foreground">
+                    {tb.attribution_analysis.summary}
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Card className="p-3.5 bg-secondary/40 gap-2">
+                      <span className="text-xs font-semibold text-foreground">
+                        Верифіковані інституції та документи
                       </span>
                       {tb.attribution_analysis.verified_entities &&
                       tb.attribution_analysis.verified_entities.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {tb.attribution_analysis.verified_entities.map((ent, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-0.5 rounded text-[11px] bg-emerald-500/15 text-emerald-200 border border-emerald-500/30"
-                            >
-                              ✓ {ent}
-                            </span>
+                            <Badge key={idx} variant="verified">
+                              {ent}
+                            </Badge>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-[11px] text-zinc-400">
+                        <p className="text-xs text-muted-foreground">
                           Прямих згадок офіційних відомств не зафіксовано.
                         </p>
                       )}
-                    </div>
-                    <div className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 space-y-1.5">
-                      <span className="text-[11px] font-semibold text-amber-300 block">
-                        Анонімні вкиди або псевдоцитати:
+                    </Card>
+                    <Card className="p-3.5 bg-secondary/40 gap-2">
+                      <span className="text-xs font-semibold text-foreground">
+                        Непідтверджені або анонімні посилання
                       </span>
                       {tb.attribution_analysis.unverified_claims &&
                       tb.attribution_analysis.unverified_claims.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {tb.attribution_analysis.unverified_claims.map((claim, idx) => (
-                            <span
-                              key={idx}
-                              className="px-2 py-0.5 rounded text-[11px] bg-rose-500/15 text-rose-200 border border-rose-500/30"
-                            >
-                              ⚠ {claim}
-                            </span>
+                            <Badge key={idx} variant="destructive">
+                              {claim}
+                            </Badge>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-[11px] text-zinc-400">
-                          Маніпулятивних посилань на «анонімні джерела» не виявлено.
+                        <p className="text-xs text-muted-foreground">
+                          Маніпулятивних посилань на анонімні джерела не виявлено.
                         </p>
                       )}
-                    </div>
+                    </Card>
                   </div>
-                </div>
+                </Card>
               )}
 
-              {/* Пореченкова теплова карта достовірності (Sentence-Level Saliency) */}
-              {tb.sentence_analysis && tb.sentence_analysis.length > 0 && (
-                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-2.5">
-                  <div className="space-y-0.5">
-                    <h4 className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
-                      <FileText className="w-4 h-4 text-cyan-400" />
-                      Пореченкова теплова карта достовірності (оцінка кожного речення):
-                    </h4>
-                    <p className="text-[11px] text-zinc-400">
-                      Штучний інтелект оцінює кожне речення окремо за контекстом, фактами та емоційним забарвленням.
-                    </p>
-                  </div>
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {tb.sentence_analysis.slice(0, 6).map((item) => {
-                      const isGood = item.status === "factual";
-                      const isBad = item.status === "manipulative";
-                      return (
-                        <div
-                          key={item.index}
-                          className={`p-3 rounded-xl border-l-4 border space-y-1 ${
-                            isGood
-                              ? "bg-emerald-500/5 border-emerald-500/20 border-l-emerald-400"
-                              : isBad
-                              ? "bg-rose-500/10 border-rose-500/30 border-l-rose-400"
-                              : "bg-amber-500/5 border-amber-500/20 border-l-amber-400"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-bold uppercase text-zinc-400">
-                              {item.is_headline ? "Заголовок" : `Речення #${item.index}`}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
-                                isGood
-                                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
-                                  : isBad
-                                  ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
-                                  : "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                              }`}
-                            >
-                              {Number(item.score).toFixed(0)}%
-                            </span>
-                          </div>
-                          <p className="text-xs text-zinc-200 leading-relaxed">{item.sentence}</p>
-                          <p className="text-[11px] text-zinc-400 italic">{item.reason}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* 5 простих кроків перевірки */}
               {tb.xai_reasoning_steps && tb.xai_reasoning_steps.length > 0 && (
-                <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-2.5">
-                  <h4 className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    Чому система поставила таку оцінку (5 простих кроків перевірки):
-                  </h4>
-                  <div className="space-y-2">
+                <Card className="p-4 sm:p-5 gap-3">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
+                    <CheckCircle2 className="size-4 text-primary" />
+                    <span>Покроковий протокол XAI-аудиту</span>
+                  </div>
+                  <div className="flex flex-col gap-2">
                     {tb.xai_reasoning_steps.map((stepItem) => {
-                      const badgeColor =
+                      const variant =
                         stepItem.status === "good"
-                          ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                          ? "verified"
                           : stepItem.status === "warning"
-                          ? "bg-amber-500/10 text-amber-300 border-amber-500/30"
-                          : "bg-rose-500/10 text-rose-300 border-rose-500/30";
+                          ? "warning"
+                          : "destructive";
                       return (
                         <div
                           key={stepItem.step}
-                          className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                          className="p-3.5 rounded-xl border border-border bg-secondary/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                         >
-                          <div className="space-y-1">
+                          <div className="flex flex-col gap-1">
                             <div className="flex items-center gap-2">
-                              <span className="w-5 h-5 rounded-full bg-zinc-800 text-zinc-200 text-[11px] font-bold flex items-center justify-center">
+                              <span className="size-5 rounded-full bg-secondary text-primary text-xs font-bold font-mono tabular-nums flex items-center justify-center border border-border">
                                 {stepItem.step}
                               </span>
-                              <span className="text-xs font-semibold text-zinc-100">
+                              <span className="text-xs font-bold text-foreground">
                                 {stepItem.component}
                               </span>
                             </div>
-                            <p className="text-xs text-zinc-300 pl-7 leading-relaxed">
+                            <p className="text-xs text-muted-foreground pl-7 leading-relaxed">
                               {stepItem.summary}
                             </p>
                           </div>
                           {stepItem.score !== undefined && (
-                            <span
-                              className={`self-start sm:self-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold border flex-shrink-0 ${badgeColor}`}
-                            >
+                            <Badge variant={variant} className="font-mono tabular-nums">
                               {Number(stepItem.score).toFixed(0)}%
-                            </span>
+                            </Badge>
                           )}
                         </div>
                       );
                     })}
                   </div>
-                </div>
+                </Card>
               )}
 
-              {/* Хто ще написав про цю подію */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/90 space-y-3">
+              <Card className="p-4 sm:p-5 gap-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <h4 className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
-                    <Search className="w-4 h-4 text-purple-400" />
-                    Хто ще з незалежних ЗМІ написав про цю подію:
-                  </h4>
-                  <span className="text-[11px] text-zinc-400">
-                    Знайдено підтверджень: {tb.corroborating_articles?.length || 0}
-                  </span>
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-foreground">
+                    <Search className="size-4 text-primary" />
+                    <span>Крос-верифікація в незалежних медіа</span>
+                  </div>
+                  <Badge variant="outline" className="tabular-nums">
+                    Підтверджень: {tb.corroborating_articles?.length || 0}
+                  </Badge>
                 </div>
                 {tb.corroboration_summary && (
-                  <p className="text-xs text-zinc-300">{tb.corroboration_summary}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {tb.corroboration_summary}
+                  </p>
                 )}
                 {tb.corroborating_articles && tb.corroborating_articles.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {tb.corroborating_articles.map((art) => (
                       <a
                         key={art.id}
                         href={art.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-800 hover:border-purple-500/40 transition-all flex flex-col justify-between gap-2 group"
+                        className="p-3.5 rounded-xl border border-border bg-secondary/40 hover:border-primary/50 transition-colors flex flex-col justify-between gap-2 group"
                       >
-                        <div className="space-y-1">
+                        <div className="flex flex-col gap-1.5">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-[11px] font-semibold text-purple-300 flex items-center gap-1">
+                            <span className="text-xs font-bold text-foreground">
                               {art.source_name}
-                              {art.is_whitelisted && (
-                                <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                                  Надійне ЗМІ
-                                </span>
-                              )}
                             </span>
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
-                              схожість {(art.similarity * 100).toFixed(0)}%
-                            </span>
+                            <Badge variant="secondary" className="font-mono tabular-nums">
+                              Схожість {(art.similarity * 100).toFixed(0)}%
+                            </Badge>
                           </div>
-                          <p className="text-xs text-zinc-200 font-medium line-clamp-2 group-hover:text-cyan-300 transition-colors">
+                          <p className="text-xs text-foreground group-hover:text-primary transition-colors line-clamp-2">
                             {art.title}
                           </p>
                         </div>
-                        <div className="flex items-center justify-between text-[10px] text-zinc-500 pt-1 border-t border-zinc-800/70">
-                          <span>Рейтинг довіри: {art.trust_score.toFixed(0)}%</span>
-                          <span className="inline-flex items-center gap-1 text-zinc-400 group-hover:text-white">
-                            Перейти до статті <ExternalLink className="w-3 h-3" />
+                        <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-2 border-t border-border/70 tabular-nums">
+                          <span>Довіра: {art.trust_score.toFixed(0)}%</span>
+                          <span className="inline-flex items-center gap-1 text-primary">
+                            Перейти <ExternalLink className="size-3" />
                           </span>
                         </div>
                       </a>
                     ))}
                   </div>
                 )}
-              </div>
+              </Card>
 
-              {/* Схожі розбори в базі фактчеків */}
               {tb.matched_fact_checks && tb.matched_fact_checks.length > 0 && (
-                <div className="p-4 sm:p-5 rounded-2xl bg-amber-500/5 border border-amber-500/25 space-y-2.5">
-                  <h4 className="text-xs font-semibold text-amber-300 flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4 text-amber-400" />
-                    Схожі розбори від українських фактчекерів (StopFake / VoxCheck):
-                  </h4>
-                  <div className="space-y-2">
+                <Card className="p-4 sm:p-5 border-warning/40 bg-warning/10 gap-3">
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-bold text-accent">
+                    <AlertTriangle className="size-4" />
+                    <span>Збіги з базою фактчекерів (StopFake / VoxCheck)</span>
+                  </div>
+                  <div className="flex flex-col gap-2.5">
                     {tb.matched_fact_checks.map((fc) => (
-                      <div
-                        key={fc.id}
-                        className="p-3.5 rounded-xl bg-zinc-950/80 border border-amber-500/20 space-y-1.5"
-                      >
+                      <Card key={fc.id} className="p-3.5 bg-background/80 gap-1.5">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-amber-300">
-                            {fc.fact_checker} • Висновок: {fc.rating}
-                          </span>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">
-                            Схожість теми: {(fc.similarity * 100).toFixed(0)}%
+                          <Badge variant="warning">
+                            {fc.fact_checker} • {fc.rating}
+                          </Badge>
+                          <span className="text-xs font-mono tabular-nums text-muted-foreground">
+                            Схожість: {(fc.similarity * 100).toFixed(0)}%
                           </span>
                         </div>
-                        <p className="text-xs text-zinc-200 font-medium">
+                        <p className="text-xs font-semibold text-foreground">
                           «{fc.claim_text}»
                         </p>
                         {fc.explanation && (
-                          <p className="text-xs text-zinc-400 line-clamp-2">{fc.explanation}</p>
+                          <p className="text-xs text-muted-foreground line-clamp-2">
+                            {fc.explanation}
+                          </p>
                         )}
                         {fc.source_url && (
                           <a
                             href={fc.source_url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:underline pt-1"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline pt-1"
                           >
-                            Читати повне спростування <ExternalLink className="w-3 h-3" />
+                            <span>Читати спростування</span>
+                            <ExternalLink className="size-3.5" />
                           </a>
                         )}
-                      </div>
+                      </Card>
                     ))}
                   </div>
-                </div>
+                </Card>
               )}
             </>
           ) : null}
         </div>
-      </div>
-    </div>,
-    document.body
+      </DialogContent>
+    </Dialog>
   );
 };

@@ -36,7 +36,7 @@ async def get_model_evaluation_metrics() -> Dict[str, Any]:
 async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     """
     Отримати зведені аналітичні метрики дезінформації в реальному часі з хмарної БД Neon.tech
-    для інтерактивного дашборду `/analytics` та Розділу 4 магістерської роботи.
+    для інтерактивного адміністративного дашборду `/analytics`.
     """
     # 1. Загальна статистика статей за рівнями довіри
     total_q = await db.execute(
@@ -90,42 +90,69 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
             )
         )
 
-    # 4. Рейтинг джерел ЗМІ (Source + агрегація з Article)
+    # 4. Рейтинг джерел ЗМІ (усі зареєстровані Source + агрегація з Article)
     sources_map: Dict[str, Source] = {}
     src_rows = (await db.execute(select(Source))).scalars().all()
     for s in src_rows:
-        sources_map[s.domain.lower()] = s
+        dom_key = reputation_service.normalize_domain(s.domain) or s.domain.lower().strip()
+        sources_map[dom_key] = s
 
     art_src_q = await db.execute(
         select(
-            Article.source_name,
-            Article.domain,
+            func.lower(Article.domain).label("dom"),
+            func.max(Article.source_name).label("src_name"),
             func.max(Article.language).label("lang"),
             func.count(Article.id).label("cnt"),
             func.avg(Article.trust_score).label("avg_trust"),
-        )
-        .group_by(Article.source_name, Article.domain)
-        .order_by(func.count(Article.id).desc())
-        .limit(12)
+        ).group_by(func.lower(Article.domain))
     )
-    top_sources: List[SourceCredibilityStat] = []
-    for s_row in art_src_q.all():
-        s_name = str(s_row[0] or "Невідоме джерело")
-        s_dom = str(s_row[1] or "").lower()
-        s_lang = str(s_row[2] or "ua")
-        s_cnt = int(s_row[3] or 0)
-        s_avg = round(float(s_row[4] or 85.0), 1)
 
-        src_obj = sources_map.get(s_dom)
-        rep_info = reputation_service.get_reputation(s_dom)
-        rel_rating = float(src_obj.reliability_rating) if src_obj else float(rep_info.reliability_rating)
-        is_white = bool((src_obj and src_obj.is_whitelisted) or rep_info.is_whitelisted)
-        is_black = bool((src_obj and src_obj.is_blacklisted) or rep_info.is_blacklisted)
+    art_stats: Dict[str, Dict[str, Any]] = {}
+    for s_row in art_src_q.all():
+        raw_dom = str(s_row[0] or "").lower().strip()
+        dom_key = reputation_service.normalize_domain(raw_dom) or raw_dom
+        if not dom_key:
+            continue
+        s_cnt = int(s_row[3] or 0)
+        s_avg = float(s_row[4] or 0.0)
+        entry = art_stats.setdefault(
+            dom_key,
+            {
+                "source_name": str(s_row[1] or "Невідоме джерело"),
+                "language": str(s_row[2] or "ua"),
+                "count": 0,
+                "weighted_sum": 0.0,
+            },
+        )
+        entry["count"] += s_cnt
+        entry["weighted_sum"] += s_avg * s_cnt
+
+    all_domains = set(sources_map.keys()) | set(art_stats.keys())
+    top_sources: List[SourceCredibilityStat] = []
+    for dom_key in all_domains:
+        src_obj = sources_map.get(dom_key)
+        stat = art_stats.get(dom_key)
+        s_cnt = int(stat["count"]) if stat else 0
+        s_avg = round(stat["weighted_sum"] / s_cnt, 1) if (stat and s_cnt > 0) else 0.0
+
+        if src_obj is not None:
+            s_name = src_obj.name
+            s_lang = src_obj.language or (stat["language"] if stat else "ua")
+            rel_rating = float(src_obj.reliability_rating)
+            is_white = bool(src_obj.is_whitelisted)
+            is_black = bool(src_obj.is_blacklisted)
+        else:
+            rep_info = reputation_service.get_reputation(dom_key)
+            s_name = stat["source_name"] if stat else dom_key
+            s_lang = stat["language"] if stat else "ua"
+            rel_rating = float(rep_info.reliability_rating)
+            is_white = bool(rep_info.is_whitelisted)
+            is_black = bool(rep_info.is_blacklisted)
 
         top_sources.append(
             SourceCredibilityStat(
                 source_name=s_name,
-                domain=s_dom,
+                domain=dom_key,
                 articles_count=s_cnt,
                 reliability_rating=round(rel_rating, 1),
                 trust_score_avg=s_avg,
@@ -134,6 +161,8 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
                 language=s_lang,
             )
         )
+
+    top_sources.sort(key=lambda x: (x.articles_count, x.reliability_rating), reverse=True)
 
     # 5. Часова динаміка публікацій по днях (останні 10 активних днів)
     recent_arts = (

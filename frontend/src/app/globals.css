@@ -1,26 +1,211 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * TruthLens Design System — Palette 3:
+ * Base / Surface: Deep Navy (#131d38, #0b1122, #172342)
+ * Primary / Analytical Sky: Soft Sky Blue (#adc7e9, #c4d8f3, #8bb0e0)
+ * Accent / Signal Gold: Warm Gold (#ffc20d, #ffd147, #e0a800)
+ *
+ * Contrast Verification (WCAG 2.2 AA/AAA):
+ * - #f4f7fc on #0b1122 (background): 16.4:1 (AAA)
+ * - #f4f7fc on #131d38 (card): 13.8:1 (AAA)
+ * - #9fb3d1 on #131d38 (muted-foreground on card): 6.9:1 (AA)
+ * - #0b1122 on #adc7e9 (primary-foreground on primary): 10.6:1 (AAA)
+ * - #0b1122 on #ffc20d (accent-foreground on accent): 11.8:1 (AAA)
+ */
+
+:root,
+.dark {
+  /* Primitive Ramp — Palette 3 */
+  --navy-950: #0b1122;
+  --navy-900: #131d38;
+  --navy-850: #172444;
+  --navy-800: #1e2e56;
+  --navy-700: #293e70;
+  --navy-600: #38528f;
+
+  --sky-100: #eaf2fc;
+  --sky-200: #c8dcf4;
+  --sky-300: #adc7e9;
+  --sky-400: #89b0e0;
+  --sky-500: #6495d1;
+
+  --gold-300: #ffd452;
+  --gold-400: #ffc20d;
+  --gold-500: #e5ab00;
+
+  /* Semantic shadcn/ui Tokens */
+  --background: var(--navy-950);
+  --foreground: #f4f7fc;
+
+  --card: var(--navy-900);
+  --card-foreground: #f4f7fc;
+
+  --popover: #101930;
+  --popover-foreground: #f4f7fc;
+
+  --primary: var(--sky-300);
+  --primary-foreground: var(--navy-950);
+
+  --secondary: var(--navy-850);
+  --secondary-foreground: #e3ecf8;
+
+  --muted: #15203d;
+  --muted-foreground: #9fb3d1;
+
+  --accent: var(--gold-400);
+  --accent-foreground: var(--navy-950);
+
+  --destructive: #f43f5e;
+  --destructive-foreground: #fff1f2;
+
+  --verified: #10b981;
+  --verified-foreground: #ecfdf5;
+
+  --warning: var(--gold-400);
+  --warning-foreground: var(--navy-950);
+
+  --border: #22335c;
+  --input: #1d2c50;
+  --ring: var(--sky-300);
+
+  --radius: 0.875rem;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-verified: var(--verified);
+  --color-verified-foreground: var(--verified-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 6px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    line-height: 1.55;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Unified Icon Stroke Width (/better-icons) */
+  svg.lucide {
+    stroke-width: 1.75px;
+    flex-shrink: 0;
+  }
+
+  /* Accessible Focus Ring (/better-accessibility WCAG 2.4.7 / 1.4.11) */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: rgba(173, 199, 233, 0.28);
+    color: #ffffff;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Tabular numerals for scores, counters, metrics, and dates (/better-typography) */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle Shimmer for Skeletons (/shadcn + /motion-design) */
+@keyframes tl-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(23, 36, 68, 0.65) 25%,
+    rgba(41, 62, 112, 0.85) 50%,
+    rgba(23, 36, 68, 0.65) 75%
+  );
+  background-size: 200% 100%;
+  animation: tl-shimmer 1.8s ease-in-out infinite;
+}
+
+/* Custom themed scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--navy-950);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--navy-700);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sky-400);
+}
+
+/* Reduced Motion Respect (/better-accessibility + /motion-design) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

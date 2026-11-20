@@ -1,9 +1,53 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "motion/react";
+import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { Source } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  FieldGroup,
+  Field,
+  FieldLabel,
+  FieldDescription,
+} from "@/components/ui/label";
+import { EmptyState, ErrorState } from "@/components/ui/state-displays";
 import {
   SlidersHorizontal,
   Plus,
@@ -11,15 +55,26 @@ import {
   CheckCircle2,
   XCircle,
   RefreshCw,
-  ArrowLeft,
   ShieldCheck,
   ShieldAlert,
   Globe,
   Search,
   Sparkles,
-  ExternalLink,
-  X,
+  Pencil,
+  AlertTriangle,
 } from "lucide-react";
+
+function SourcesTableSkeleton() {
+  return (
+    <Card className="border-border/85 bg-card/90 overflow-hidden">
+      <div className="p-5 flex flex-col gap-3">
+        {Array.from({ length: 6 }).map((_, idx) => (
+          <Skeleton key={idx} className="h-14 w-full rounded-xl" />
+        ))}
+      </div>
+    </Card>
+  );
+}
 
 export default function AdminSourcesPage() {
   const { user, token, isLoading: authLoading, apiUrl } = useAuth();
@@ -27,44 +82,47 @@ export default function AdminSourcesPage() {
 
   const [sources, setSources] = useState<Source[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "rss" | "white" | "black">("all");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [syncingSourceId, setSyncingSourceId] = useState<number | null>(null);
   const [syncingAll, setSyncingAll] = useState(false);
 
-  // Модальне вікно створення або редагування джерела
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
 
-  // Поля форми
   const [name, setName] = useState("");
   const [domain, setDomain] = useState("");
   const [homepageUrl, setHomepageUrl] = useState("");
   const [rssUrl, setRssUrl] = useState("");
   const [language, setLanguage] = useState<"ua" | "en">("ua");
-  const [rating, setRating] = useState<number>(85);
+  const [rating, setRating] = useState<number>(88);
   const [listStatus, setListStatus] = useState<"whitelist" | "neutral" | "blacklist">("whitelist");
   const [saving, setSaving] = useState(false);
 
-  const fetchSources = async () => {
+  const fetchSources = useCallback(async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
-      const res = await fetch(`${baseApi}/sources`);
-      if (res.ok) {
-        const data = await res.json();
-        setSources(data);
+      const res = await fetch(`${baseApi}/sources`, { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error("Не вдалося завантажити реєстр інформаційних джерел.");
       }
-    } catch (e) {
-      console.error("Помилка завантаження джерел", e);
+      const data = await res.json();
+      setSources(data);
+    } catch (e: unknown) {
+      setFetchError(
+        e instanceof Error ? e.message : "Помилка з'єднання із сервером."
+      );
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [baseApi]);
 
   useEffect(() => {
     fetchSources();
-  }, [baseApi]);
+  }, [fetchSources]);
 
   const openCreateModal = () => {
     setEditingSource(null);
@@ -102,10 +160,17 @@ export default function AdminSourcesPage() {
     setSaving(true);
     setStatusMessage(null);
 
+    const cleanDomain = domain
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/^www\./, "")
+      .split("/")[0];
+
     const payload = {
       name: name.trim(),
-      domain: domain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0],
-      homepage_url: homepageUrl.trim() || `https://${domain.trim().toLowerCase()}`,
+      domain: cleanDomain,
+      homepage_url: homepageUrl.trim() || `https://${cleanDomain}`,
       rss_url: rssUrl.trim() || null,
       language,
       country: language === "en" ? "INT" : "UA",
@@ -132,21 +197,24 @@ export default function AdminSourcesPage() {
       if (res.ok) {
         setIsModalOpen(false);
         const rssNote = payload.rss_url
-          ? " Автоматичний імпорт новин із RSS уже запущено у фоні — статті з'являться у стрічці за кілька секунд."
+          ? " Автоматичний імпорт новин із RSS уже запущено у фоні."
           : "";
-        setStatusMessage(
+        const msg =
           (editingSource
-            ? `Джерело «${payload.name}» (${payload.domain}) успішно оновлено!`
-            : `Нове джерело «${payload.name}» (${payload.domain}) додано до реєстру!`) + rssNote
-        );
+            ? `Джерело «${payload.name}» (${payload.domain}) успішно оновлено.`
+            : `Нове джерело «${payload.name}» (${payload.domain}) додано до реєстру.`) +
+          rssNote;
+        setStatusMessage(msg);
+        toast.success(msg);
         await fetchSources();
       } else {
         const errData = await res.json().catch(() => ({}));
-        setStatusMessage(`Помилка: ${errData.detail || "не вдалося зберегти джерело"}`);
+        const errMsg = `Помилка: ${errData.detail || "не вдалося зберегти джерело"}`;
+        setStatusMessage(errMsg);
+        toast.error(errMsg);
       }
-    } catch (e) {
-      console.error("Помилка збереження джерела", e);
-      setStatusMessage("Помилка з'єднання із сервером при збереженні джерела.");
+    } catch {
+      toast.error("Помилка з'єднання із сервером при збереженні джерела.");
     } finally {
       setSaving(false);
     }
@@ -163,15 +231,16 @@ export default function AdminSourcesPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setStatusMessage(
-          data.message || `RSS-канал «${src.name}» перевірено: імпортовано ${data.new_articles ?? 0} нових статей.`
-        );
+        const msg =
+          data.message ||
+          `RSS-канал «${src.name}» перевірено: імпортовано ${data.new_articles ?? 0} нових статей.`;
+        setStatusMessage(msg);
+        toast.success(msg);
       } else {
-        setStatusMessage(`Помилка RSS: ${data.detail || "не вдалося прочитати RSS-стрічку"}`);
+        toast.error(`Помилка RSS: ${data.detail || "не вдалося прочитати RSS-стрічку"}`);
       }
-    } catch (e) {
-      console.error("Помилка синхронізації RSS", e);
-      setStatusMessage("Не вдалося виконати запит на парсинг RSS-стрічки.");
+    } catch {
+      toast.error("Не вдалося виконати запит на парсинг RSS-стрічки.");
     } finally {
       setSyncingSourceId(null);
     }
@@ -183,12 +252,13 @@ export default function AdminSourcesPage() {
     try {
       const res = await fetch(`${baseApi}/news/sync`, { method: "POST" });
       if (res.ok) {
-        setStatusMessage(
-          "Фоновий збір та XAI-скоринг усіх активних RSS-каналів запущено! Нові статті автоматично з'являться у базі."
-        );
+        const msg =
+          "Фоновий збір та XAI-скоринг усіх активних RSS-каналів запущено. Нові статті автоматично з'являться у базі.";
+        setStatusMessage(msg);
+        toast.success(msg);
       }
-    } catch (e) {
-      console.error("Помилка синхронізації всіх RSS", e);
+    } catch {
+      toast.error("Не вдалося запустити синхронізацію RSS-каналів.");
     } finally {
       setSyncingAll(false);
     }
@@ -203,27 +273,25 @@ export default function AdminSourcesPage() {
       });
       if (res.ok) {
         setSources((prev) => prev.filter((s) => s.id !== id));
-        setStatusMessage(`Джерело «${srcName}» видалено з реєстру.`);
+        toast.success(`Джерело «${srcName}» видалено з реєстру.`);
       }
-    } catch (e) {
-      console.error("Помилка видалення джерела", e);
+    } catch {
+      toast.error("Не вдалося видалити джерело.");
     }
   };
 
   if (!authLoading && (!user || user.role !== "admin")) {
     return (
-      <div className="max-w-md mx-auto px-4 py-20 text-center space-y-4">
-        <ShieldAlert className="w-12 h-12 text-amber-500 mx-auto" />
-        <h2 className="text-xl font-bold text-white">Доступ обмежено</h2>
-        <p className="text-xs text-zinc-400">
-          Цей розділ призначений виключно для адміністраторів системи TruthLens.
-        </p>
-        <Link
-          href="/login"
-          className="inline-block mt-2 px-4 py-2 rounded-xl bg-indigo-600 text-xs font-semibold text-white"
-        >
-          Увійти як Адміністратор
-        </Link>
+      <div className="max-w-xl mx-auto px-4 py-20">
+        <EmptyState
+          icon={ShieldAlert}
+          title="Доступ обмежено"
+          description="Цей розділ призначений виключно для адміністраторів платформи TruthLens."
+          actionLabel="Увійти як Адміністратор"
+          onAction={() => {
+            window.location.href = "/login";
+          }}
+        />
       </div>
     );
   }
@@ -247,378 +315,400 @@ export default function AdminSourcesPage() {
   const blackCount = sources.filter((s) => s.is_blacklisted).length;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
       {/* Шапка сторінки керування джерелами та RSS */}
-      <div className="rounded-3xl border border-zinc-800/90 bg-gradient-to-br from-zinc-900/95 via-zinc-950 to-cyan-950/20 p-6 sm:p-8 shadow-2xl space-y-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold">
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Адміністрування реєстру ЗМІ • Domain Credibility Index & RSS Ingestion</span>
+      <Card className="border-border/90 bg-card/95 shadow-lg">
+        <CardHeader className="p-6 sm:p-8 pb-4">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex flex-col gap-2 max-w-3xl">
+              <Badge variant="default" className="w-fit">
+                <SlidersHorizontal className="size-3.5" />
+                Адміністрування реєстру ЗМІ • Domain Credibility Index & RSS
+              </Badge>
+              <CardTitle className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
+                Керування репутацією доменів та RSS-каналами
+              </CardTitle>
+              <CardDescription className="text-xs sm:text-sm text-muted-foreground leading-relaxed max-w-[68ch]">
+                Додавайте нові RSS-стрічки для автоматичного парсингу новин, змінюйте індекс репутації доменів (0–100%) та керуйте Білим і Чорним списками медіа.
+              </CardDescription>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Керування репутацією доменів та RSS-каналами
-            </h1>
-            <p className="text-xs sm:text-sm text-zinc-400 max-w-3xl leading-relaxed">
-              Додавайте нові RSS-стрічки для автоматичного парсингу новин, змінюйте індекс репутації доменів (0–100%) та керуйте Білим і Чорним списками медіа.
-            </p>
-          </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleSyncAllFeeds}
-              disabled={syncingAll}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-xs font-semibold border border-zinc-700 transition-colors cursor-pointer"
-            >
-              <RefreshCw className={`w-4 h-4 text-cyan-400 ${syncingAll ? "animate-spin" : ""}`} />
-              <span>Оновити всі RSS-канали</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2.5 self-start lg:self-center">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleSyncAllFeeds}
+                disabled={syncingAll}
+              >
+                <RefreshCw
+                  className={`size-4 text-primary ${syncingAll ? "animate-spin" : ""}`}
+                  data-icon="inline-start"
+                />
+                Оновити всі RSS-канали
+              </Button>
 
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white font-bold text-xs shadow-lg shadow-cyan-500/20 hover:brightness-110 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Додати джерело / RSS-канал</span>
-            </button>
+              <Button type="button" variant="accent" onClick={openCreateModal}>
+                <Plus className="size-4" data-icon="inline-start" />
+                Додати джерело / RSS-канал
+              </Button>
+            </div>
           </div>
-        </div>
+        </CardHeader>
 
-        {/* Статистичні лічильники реєстру */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-          <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
-            <span className="text-[11px] text-zinc-400">Усього джерел у реєстрі</span>
-            <div className="text-xl font-extrabold text-white font-mono mt-0.5">
-              {sources.length}
+        <CardContent className="p-6 sm:p-8 pt-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <div className="p-4 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Усього джерел у реєстрі</span>
+              <div className="text-2xl font-extrabold text-foreground font-mono tabular-nums">
+                {sources.length}
+              </div>
+            </div>
+            <div className="p-4 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Підключені RSS-стрічки</span>
+              <div className="text-2xl font-extrabold text-primary font-mono tabular-nums">
+                {activeRssCount}
+              </div>
+            </div>
+            <div className="p-4 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Білий список ІМІ</span>
+              <div className="text-2xl font-extrabold text-verified font-mono tabular-nums">
+                {whiteCount}
+              </div>
+            </div>
+            <div className="p-4 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Чорний список (дезінформація)</span>
+              <div className="text-2xl font-extrabold text-destructive font-mono tabular-nums">
+                {blackCount}
+              </div>
             </div>
           </div>
-          <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
-            <span className="text-[11px] text-zinc-400">Підключені RSS-стрічки</span>
-            <div className="text-xl font-extrabold text-cyan-400 font-mono mt-0.5">
-              {activeRssCount}
-            </div>
-          </div>
-          <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
-            <span className="text-[11px] text-zinc-400">Білий список ІМІ</span>
-            <div className="text-xl font-extrabold text-emerald-400 font-mono mt-0.5">
-              {whiteCount}
-            </div>
-          </div>
-          <div className="p-3.5 rounded-2xl bg-zinc-900/90 border border-zinc-800">
-            <span className="text-[11px] text-zinc-400">Чорний список (дезінформація)</span>
-            <div className="text-xl font-extrabold text-rose-400 font-mono mt-0.5">
-              {blackCount}
-            </div>
-          </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {/* Повідомлення про статус дії */}
-      {statusMessage && (
-        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 text-xs font-medium">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-            <span>{statusMessage}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setStatusMessage(null)}
-            className="text-zinc-400 hover:text-white cursor-pointer"
+      <AnimatePresence mode="wait">
+        {statusMessage && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+            <Alert variant="default" className="bg-primary/10 border-primary/30">
+              <Sparkles className="size-4 text-primary" />
+              <AlertTitle>Оновлення реєстру джерел</AlertTitle>
+              <AlertDescription>{statusMessage}</AlertDescription>
+            </Alert>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Панель пошуку та фільтрів */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
+          <Search className="size-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Input
+            type="search"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Пошук за назвою ЗМІ, доменом або RSS URL..."
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-cyan-500"
+            aria-label="Пошук джерела"
+            className="pl-10"
           />
         </div>
 
         <div className="flex flex-wrap gap-1.5">
-          {[
-            { id: "all", label: `Всі (${sources.length})` },
-            { id: "rss", label: `З RSS-каналом (${activeRssCount})` },
-            { id: "white", label: `Білий список (${whiteCount})` },
-            { id: "black", label: `Чорний список (${blackCount})` },
-          ].map((tab) => (
-            <button
+          {(
+            [
+              { id: "all", label: `Всі (${sources.length})` },
+              { id: "rss", label: `З RSS-каналом (${activeRssCount})` },
+              { id: "white", label: `Білий список (${whiteCount})` },
+              { id: "black", label: `Чорний список (${blackCount})` },
+            ] as const
+          ).map((tab) => (
+            <Button
               key={tab.id}
               type="button"
-              onClick={() => setStatusFilter(tab.id as any)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer ${
-                statusFilter === tab.id
-                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
-                  : "bg-zinc-900 text-zinc-400 hover:text-zinc-200 border border-zinc-800"
-              }`}
+              variant={statusFilter === tab.id ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter(tab.id)}
+              className="tabular-nums"
             >
               {tab.label}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {/* Таблиця джерел */}
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-zinc-500 space-y-3">
-          <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
-          <p className="text-sm">Завантаження бази джерел та RSS-каналів...</p>
-        </div>
+        <SourcesTableSkeleton />
+      ) : fetchError ? (
+        <ErrorState
+          title="Не вдалося завантажити реєстр джерел"
+          message={fetchError}
+          onRetry={fetchSources}
+        />
+      ) : filteredSources.length === 0 ? (
+        <EmptyState
+          icon={Globe}
+          title="Джерел за обраними критеріями не знайдено"
+          description="Спробуйте змінити пошуковий запит або додайте нове інформаційне джерело."
+          actionLabel="Додати джерело"
+          onAction={openCreateModal}
+        />
       ) : (
-        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/60 overflow-hidden shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-zinc-950 border-b border-zinc-800 text-zinc-400 font-mono uppercase text-[10px]">
-                <tr>
-                  <th className="px-5 py-3.5">Назва ЗМІ та Домен</th>
-                  <th className="px-5 py-3.5">Мова</th>
-                  <th className="px-5 py-3.5">RSS-канал (Автозбір)</th>
-                  <th className="px-5 py-3.5">Репутація домену</th>
-                  <th className="px-5 py-3.5">Статус у реєстрі</th>
-                  <th className="px-5 py-3.5 text-right">Керування</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800/60">
-                {filteredSources.map((source) => (
-                  <tr key={source.id} className="hover:bg-zinc-800/30 transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="font-bold text-zinc-100 text-sm">{source.name}</div>
-                      <div className="text-zinc-400 font-mono text-[11px] flex items-center gap-1.5 mt-0.5">
-                        <Globe className="w-3 h-3 text-zinc-500" />
-                        <span>{source.domain}</span>
-                      </div>
-                    </td>
+        <Card className="border-border/85 bg-card/90 overflow-hidden">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Назва ЗМІ та Домен</TableHead>
+                <TableHead>Мова</TableHead>
+                <TableHead>RSS-канал (Автозбір)</TableHead>
+                <TableHead>Репутація домену</TableHead>
+                <TableHead>Статус у реєстрі</TableHead>
+                <TableHead className="text-right">Керування</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredSources.map((source) => (
+                <TableRow key={source.id}>
+                  <TableCell>
+                    <div className="font-bold text-foreground text-sm">{source.name}</div>
+                    <div className="text-muted-foreground font-mono text-xs flex items-center gap-1.5 mt-0.5">
+                      <Globe className="size-3.5 text-muted-foreground" />
+                      <span>{source.domain}</span>
+                    </div>
+                  </TableCell>
 
-                    <td className="px-5 py-4">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-zinc-800 text-zinc-300">
-                        {source.language === "en" ? "EN" : "UA"}
+                  <TableCell>
+                    <Badge variant="secondary" className="font-mono uppercase">
+                      {source.language === "en" ? "EN" : "UA"}
+                    </Badge>
+                  </TableCell>
+
+                  <TableCell className="max-w-xs">
+                    {source.rss_url ? (
+                      <div className="flex flex-col gap-1">
+                        <Badge variant="default" className="w-fit">
+                          <CheckCircle2 className="size-3" />
+                          Активний RSS
+                        </Badge>
+                        <div
+                          className="text-[11px] font-mono text-muted-foreground truncate max-w-[240px]"
+                          title={source.rss_url}
+                        >
+                          {source.rss_url}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">RSS не вказано</span>
+                    )}
+                  </TableCell>
+
+                  <TableCell>
+                    <div className="flex items-center gap-2.5 tabular-nums">
+                      <span
+                        className={`font-mono font-bold text-sm ${
+                          source.reliability_rating >= 80
+                            ? "text-verified"
+                            : source.reliability_rating >= 50
+                            ? "text-warning"
+                            : "text-destructive"
+                        }`}
+                      >
+                        {source.reliability_rating.toFixed(0)}%
                       </span>
-                    </td>
-
-                    <td className="px-5 py-4 max-w-xs">
-                      {source.rss_url ? (
-                        <div className="space-y-1">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-cyan-500/10 text-cyan-300 border border-cyan-500/25">
-                            <CheckCircle2 className="w-3 h-3" /> Активний RSS
-                          </span>
-                          <div
-                            className="text-[11px] font-mono text-zinc-400 truncate max-w-[240px]"
-                            title={source.rss_url}
-                          >
-                            {source.rss_url}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-zinc-500 text-[11px]">RSS не вказано</span>
-                      )}
-                    </td>
-
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`font-mono font-bold text-sm ${
+                      <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
+                        <div
+                          className={`h-full rounded-full ${
                             source.reliability_rating >= 80
-                              ? "text-emerald-400"
+                              ? "bg-verified"
                               : source.reliability_rating >= 50
-                              ? "text-amber-400"
-                              : "text-rose-400"
+                              ? "bg-warning"
+                              : "bg-destructive"
                           }`}
+                          style={{
+                            width: `${Math.min(
+                              100,
+                              Math.max(4, source.reliability_rating)
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </TableCell>
+
+                  <TableCell>
+                    {source.is_whitelisted ? (
+                      <Badge variant="verified">
+                        <CheckCircle2 className="size-3" />
+                        Білий список ІМІ
+                      </Badge>
+                    ) : source.is_blacklisted ? (
+                      <Badge variant="destructive">
+                        <XCircle className="size-3" />
+                        Чорний список
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">Нейтральний</Badge>
+                    )}
+                  </TableCell>
+
+                  <TableCell className="text-right">
+                    <div className="inline-flex items-center gap-1.5">
+                      {source.rss_url && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="xs"
+                          onClick={() => handleFetchSingleRss(source)}
+                          disabled={syncingSourceId === source.id}
+                          title="Зібрати свіжі новини з цього RSS-каналу зараз"
                         >
-                          {source.reliability_rating.toFixed(0)}%
-                        </span>
-                        <div className="w-16 h-1.5 rounded-full bg-zinc-800 overflow-hidden hidden sm:block">
-                          <div
-                            className={`h-full rounded-full ${
-                              source.reliability_rating >= 80
-                                ? "bg-emerald-500"
-                                : source.reliability_rating >= 50
-                                ? "bg-amber-500"
-                                : "bg-rose-500"
+                          <RefreshCw
+                            className={`size-3.5 text-primary ${
+                              syncingSourceId === source.id ? "animate-spin" : ""
                             }`}
-                            style={{ width: `${Math.min(100, Math.max(4, source.reliability_rating))}%` }}
+                            data-icon="inline-start"
                           />
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="px-5 py-4">
-                      {source.is_whitelisted ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Білий список ІМІ
-                        </span>
-                      ) : source.is_blacklisted ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30">
-                          <XCircle className="w-3 h-3" />
-                          Чорний список
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-semibold bg-zinc-800 text-zinc-300 border border-zinc-700">
-                          Нейтральний
-                        </span>
+                          <span className="hidden md:inline">Зібрати RSS</span>
+                        </Button>
                       )}
-                    </td>
 
-                    <td className="px-5 py-4 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        {source.rss_url && (
-                          <button
-                            type="button"
-                            onClick={() => handleFetchSingleRss(source)}
-                            disabled={syncingSourceId === source.id}
-                            className="px-2.5 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/25 text-[11px] font-semibold inline-flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Зібрати свіжі новини з цього RSS-каналу зараз"
-                          >
-                            <RefreshCw
-                              className={`w-3.5 h-3.5 ${
-                                syncingSourceId === source.id ? "animate-spin" : ""
-                              }`}
-                            />
-                            <span className="hidden md:inline">Зібрати RSS</span>
-                          </button>
-                        )}
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="xs"
+                        onClick={() => openEditModal(source)}
+                      >
+                        <Pencil className="size-3.5" data-icon="inline-start" />
+                        Редагувати
+                      </Button>
 
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(source)}
-                          className="px-2.5 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 text-[11px] font-semibold transition-colors cursor-pointer"
-                          title="Змінити репутацію домену або RSS-канал"
-                        >
-                          Редагувати
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(source.id, source.name)}
-                          className="p-1.5 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                          title="Видалити джерело"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => handleDelete(source.id, source.name)}
+                        aria-label={`Видалити джерело ${source.name}`}
+                        className="text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
       {/* Модальне вікно додавання / редагування джерела */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-zinc-900 border border-zinc-800 rounded-3xl p-6 sm:p-7 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-white">
-                  {editingSource ? "Редагування медіаджерела та RSS" : "Додати нове джерело та RSS-канал"}
-                </h3>
-                <p className="text-xs text-zinc-400">
-                  Налаштуйте домен, RSS-стрічку та базовий рейтинг довіри (Domain Credibility Index)
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-xl bg-zinc-800 text-zinc-400 hover:text-white cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {editingSource
+                ? "Редагування медіаджерела та RSS"
+                : "Додати нове джерело та RSS-канал"}
+            </DialogTitle>
+            <DialogDescription>
+              Налаштуйте домен, RSS-стрічку та базовий рейтинг довіри (Domain Credibility Index)
+            </DialogDescription>
+          </DialogHeader>
 
-            <form onSubmit={handleSaveSource} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-zinc-300">Назва видання (ЗМІ)</label>
-                  <input
+          <form onSubmit={handleSaveSource}>
+            <FieldGroup>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <Field>
+                  <FieldLabel htmlFor="src-name-input">Назва видання (ЗМІ)</FieldLabel>
+                  <Input
+                    id="src-name-input"
                     type="text"
                     required
                     placeholder="Напр.: Суспільне Новини"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full mt-1 px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500"
                   />
-                </div>
+                </Field>
 
-                <div>
-                  <label className="text-xs font-semibold text-zinc-300">Домен (без https://)</label>
-                  <input
+                <Field>
+                  <FieldLabel htmlFor="src-domain-input">Домен (без https://)</FieldLabel>
+                  <Input
+                    id="src-domain-input"
                     type="text"
                     required
                     placeholder="Напр.: suspilne.media"
                     value={domain}
                     onChange={(e) => setDomain(e.target.value)}
-                    className="w-full mt-1 px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-cyan-500"
+                    className="font-mono"
                   />
-                </div>
+                </Field>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="text-xs font-semibold text-cyan-300">
-                    URL-адреса RSS-каналу (для автозбору новин)
-                  </label>
-                  <input
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <Field className="sm:col-span-2">
+                  <FieldLabel htmlFor="src-rss-input">
+                    URL-адреса RSS-каналу (для автозбору)
+                  </FieldLabel>
+                  <Input
+                    id="src-rss-input"
                     type="url"
                     placeholder="https://suspilne.media/rss/all.rss"
                     value={rssUrl}
                     onChange={(e) => setRssUrl(e.target.value)}
-                    className="w-full mt-1 px-3.5 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-100 focus:outline-none focus:border-cyan-500"
+                    className="font-mono"
                   />
-                </div>
+                </Field>
 
-                <div>
-                  <label className="text-xs font-semibold text-zinc-300">Мова потоку</label>
-                  <select
+                <Field>
+                  <FieldLabel>Мова потоку</FieldLabel>
+                  <Select
                     value={language}
-                    onChange={(e) => setLanguage(e.target.value as "ua" | "en")}
-                    className="w-full mt-1 px-3 py-2 rounded-xl bg-zinc-950 border border-zinc-800 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500"
+                    onValueChange={(val) => setLanguage(val as "ua" | "en")}
                   >
-                    <option value="ua">UA (Українська)</option>
-                    <option value="en">EN (English / World)</option>
-                  </select>
-                </div>
+                    <SelectTrigger aria-label="Мова потоку">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ua">UA (Українська)</SelectItem>
+                      <SelectItem value="en">EN (World)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
               </div>
 
               {/* Повзунок репутації домену */}
-              <div className="p-4 rounded-2xl bg-zinc-950/90 border border-zinc-800 space-y-2">
+              <div className="p-4 rounded-xl bg-secondary/55 border border-border flex flex-col gap-2.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-zinc-200">
-                    Індекс репутації домену (0–100%):
-                  </label>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-lg font-mono font-bold text-sm ${
+                  <FieldLabel htmlFor="src-rating-range">
+                    Індекс репутації домену (0–100%)
+                  </FieldLabel>
+                  <Badge
+                    variant={
                       rating >= 80
-                        ? "bg-emerald-500/15 text-emerald-300"
+                        ? "verified"
                         : rating >= 50
-                        ? "bg-amber-500/15 text-amber-300"
-                        : "bg-rose-500/15 text-rose-300"
-                    }`}
+                        ? "warning"
+                        : "destructive"
+                    }
+                    className="font-mono tabular-nums"
                   >
                     {rating}%
-                  </span>
+                  </Badge>
                 </div>
                 <input
+                  id="src-rating-range"
                   type="range"
                   min="0"
                   max="100"
                   step="1"
                   value={rating}
                   onChange={(e) => setRating(Number(e.target.value))}
-                  className="w-full accent-cyan-500 cursor-pointer"
+                  className="w-full accent-primary cursor-pointer"
                 />
-                <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                <div className="flex justify-between text-[10px] text-muted-foreground font-mono tabular-nums">
                   <span>0% (Фейки / ІПСО)</span>
                   <span>50% (Сумнівне / Таблоїд)</span>
                   <span>95% (Білий список ІМІ)</span>
@@ -626,82 +716,73 @@ export default function AdminSourcesPage() {
               </div>
 
               {/* Вибір статусу списку */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-300">
-                  Категорія в реєстрі достовірності:
-                </label>
+              <Field>
+                <FieldLabel>Категорія в реєстрі достовірності</FieldLabel>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
+                  <Button
                     type="button"
+                    variant={listStatus === "whitelist" ? "default" : "outline"}
+                    size="sm"
                     onClick={() => {
                       setListStatus("whitelist");
                       if (rating < 80) setRating(92);
                     }}
-                    className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                      listStatus === "whitelist"
-                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                        : "bg-zinc-950 text-zinc-400 border-zinc-800"
-                    }`}
                   >
-                    ✓ Білий список
-                  </button>
+                    <CheckCircle2 className="size-3.5" data-icon="inline-start" />
+                    Білий список
+                  </Button>
 
-                  <button
+                  <Button
                     type="button"
+                    variant={listStatus === "neutral" ? "default" : "outline"}
+                    size="sm"
                     onClick={() => {
                       setListStatus("neutral");
                       if (rating > 85 || rating < 45) setRating(72);
                     }}
-                    className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                      listStatus === "neutral"
-                        ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/40"
-                        : "bg-zinc-950 text-zinc-400 border-zinc-800"
-                    }`}
                   >
-                    • Нейтральний
-                  </button>
+                    <ShieldCheck className="size-3.5" data-icon="inline-start" />
+                    Нейтральний
+                  </Button>
 
-                  <button
+                  <Button
                     type="button"
+                    variant={listStatus === "blacklist" ? "destructive" : "outline"}
+                    size="sm"
                     onClick={() => {
                       setListStatus("blacklist");
                       if (rating > 35) setRating(12);
                     }}
-                    className={`py-2 px-3 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                      listStatus === "blacklist"
-                        ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
-                        : "bg-zinc-950 text-zinc-400 border-zinc-800"
-                    }`}
                   >
-                    ⚠ Чорний список
-                  </button>
+                    <AlertTriangle className="size-3.5" data-icon="inline-start" />
+                    Чорний список
+                  </Button>
                 </div>
-              </div>
+                <FieldDescription>
+                  Статус визначає базовий пріоритет джерела при обчисленні інтегрального балу Trust Score V4.
+                </FieldDescription>
+              </Field>
 
-              <div className="flex justify-end gap-2 pt-3 border-t border-zinc-800">
-                <button
+              <DialogFooter className="pt-3 border-t border-border/75">
+                <Button
                   type="button"
+                  variant="ghost"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white cursor-pointer"
                 >
                   Скасувати
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-xs font-bold text-white hover:brightness-110 disabled:opacity-50 cursor-pointer"
-                >
+                </Button>
+                <Button type="submit" variant="accent" disabled={saving}>
                   {saving
                     ? "Збереження..."
                     : editingSource
                     ? "Зберегти зміни"
                     : "Додати джерело"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                </Button>
+              </DialogFooter>
+            </FieldGroup>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

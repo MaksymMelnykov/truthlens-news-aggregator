@@ -3,9 +3,9 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion } from "motion/react";
 import { useAuth } from "@/context/AuthContext";
 import {
-  ShieldCheck,
   Bookmark,
   History,
   LogOut,
@@ -13,7 +13,12 @@ import {
   Sparkles,
   ShieldAlert,
   PieChart,
+  Newspaper,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { BrandLogo } from "@/components/ui/brand-logo";
+import { cn } from "@/lib/utils";
 
 export const Header: React.FC = () => {
   const { user, logout } = useAuth();
@@ -22,181 +27,197 @@ export const Header: React.FC = () => {
   const isActive = (path: string) => pathname === path;
   const isAdmin = user?.role === "admin";
 
+  const navItems = isAdmin
+    ? [
+        {
+          href: "/analytics",
+          label: "Аналітика та метрики",
+          icon: PieChart,
+        },
+        {
+          href: "/admin/sources",
+          label: "Джерела та RSS-канали",
+          icon: SlidersHorizontal,
+        },
+      ]
+    : [
+        {
+          href: "/",
+          label: "Стрічка новин",
+          icon: Newspaper,
+        },
+        {
+          href: "/factchecks",
+          label: "База фактчеків",
+          icon: ShieldAlert,
+        },
+        {
+          href: "/verify",
+          label: "Перевірка статті",
+          icon: Sparkles,
+        },
+      ];
+
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Логотип бренду */}
-        <Link href={isAdmin ? "/analytics" : "/"} className="flex items-center gap-2.5 group">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 via-indigo-600 to-emerald-500 p-0.5 shadow-lg shadow-cyan-500/20 group-hover:shadow-cyan-500/40 transition-all">
-            <div className="w-full h-full bg-zinc-950 rounded-[10px] flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-cyan-400 group-hover:scale-110 transition-transform" />
-            </div>
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-zinc-100 via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
-                TruthLens
-              </span>
-              {isAdmin ? (
-                <span className="text-[10px] uppercase font-mono tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                  Admin Panel
-                </span>
-              ) : (
-                <span className="text-[10px] uppercase font-mono tracking-wider px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-                  AI FactCheck
-                </span>
-              )}
-            </div>
+    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/85 backdrop-blur-md">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+        <Link
+          href={isAdmin ? "/analytics" : "/"}
+          className="group flex items-center gap-3 focus-visible:rounded-xl"
+          aria-label="TruthLens — перехід на головну"
+        >
+          <BrandLogo size="md" />
+          <div className="flex items-center gap-2">
+            <span className="font-extrabold text-lg sm:text-xl tracking-tight text-foreground">
+              TruthLens
+            </span>
+            <Badge variant={isAdmin ? "accent" : "secondary"}>
+              {isAdmin ? "Admin Console" : "Media Guard"}
+            </Badge>
           </div>
         </Link>
 
-        {/* Навігація: суворий поділ між Адміністратором та Користувачем */}
-        <nav className="flex items-center gap-1">
-          {isAdmin ? (
-            <>
+        <nav
+          aria-label="Основна навігація"
+          className="hidden md:flex items-center gap-1 rounded-xl border border-border bg-card/80 p-1"
+        >
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item.href);
+            return (
               <Link
-                href="/analytics"
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${
-                  isActive("/analytics")
-                    ? "bg-indigo-500/20 text-indigo-200 border border-indigo-500/40"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
-                }`}
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "relative px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-2 transition-colors",
+                  active
+                    ? "text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
               >
-                <PieChart className="w-4 h-4 text-indigo-400" />
-                <span>Аналітика та метрики</span>
+                {active && (
+                  <motion.span
+                    layoutId="header-active-pill"
+                    transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
+                    className="absolute inset-0 rounded-lg bg-primary"
+                    aria-hidden="true"
+                  />
+                )}
+                <Icon className="relative z-10 size-4" />
+                <span className="relative z-10">{item.label}</span>
               </Link>
-              <Link
-                href="/admin/sources"
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${
-                  isActive("/admin/sources")
-                    ? "bg-cyan-500/20 text-cyan-200 border border-cyan-500/40"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
-                }`}
-              >
-                <SlidersHorizontal className="w-4 h-4 text-cyan-400" />
-                <span>Джерела та RSS-канали</span>
-              </Link>
-            </>
-          ) : (
-            <div className="hidden md:flex items-center gap-1">
-              <Link
-                href="/"
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isActive("/")
-                    ? "bg-zinc-800/80 text-white"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
-                }`}
-              >
-                Стрічка новин
-              </Link>
-              <Link
-                href="/factchecks"
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${
-                  isActive("/factchecks")
-                    ? "bg-zinc-800/80 text-white"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
-                }`}
-              >
-                <ShieldAlert className="w-4 h-4 text-amber-400" />
-                База фактчеків
-              </Link>
-              <Link
-                href="/verify"
-                className={`px-3.5 py-2 rounded-lg text-sm font-medium flex items-center gap-1.5 transition-colors ${
-                  isActive("/verify")
-                    ? "bg-zinc-800/80 text-white"
-                    : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900"
-                }`}
-              >
-                <Sparkles className="w-4 h-4 text-cyan-400" />
-                Перевірка статті
-              </Link>
-            </div>
-          )}
+            );
+          })}
         </nav>
 
-        {/* Блок стану користувача */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           {user ? (
             <div className="flex items-center gap-2">
-              {/* Закладки та Історія перевірок — лише для звичайних користувачів */}
               {!isAdmin && (
                 <>
-                  <Link
-                    href="/bookmarks"
-                    className={`p-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-colors ${
-                      isActive("/bookmarks") ? "text-cyan-400 bg-zinc-900" : ""
-                    }`}
-                    title="Збережені новини"
+                  <Button
+                    asChild
+                    variant={isActive("/bookmarks") ? "default" : "ghost"}
+                    size="icon"
                   >
-                    <Bookmark className="w-4 h-4" />
-                  </Link>
+                    <Link
+                      href="/bookmarks"
+                      aria-label="Збережені новини"
+                      title="Збережені новини"
+                    >
+                      <Bookmark className="size-4" />
+                    </Link>
+                  </Button>
 
-                  <Link
-                    href="/history"
-                    className={`p-2 rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-900 transition-colors ${
-                      isActive("/history") ? "text-cyan-400 bg-zinc-900" : ""
-                    }`}
-                    title="Історія фактчекінгу"
+                  <Button
+                    asChild
+                    variant={isActive("/history") ? "default" : "ghost"}
+                    size="icon"
                   >
-                    <History className="w-4 h-4" />
-                  </Link>
+                    <Link
+                      href="/history"
+                      aria-label="Історія перевірок"
+                      title="Історія перевірок"
+                    >
+                      <History className="size-4" />
+                    </Link>
+                  </Button>
                 </>
               )}
 
-              {/* Профіль користувача / адміністратора */}
-              <div className="flex items-center gap-2 pl-2 border-l border-zinc-800">
+              <div className="flex items-center gap-2.5 pl-2.5 border-l border-border">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-inner ${
+                  className={cn(
+                    "size-8 rounded-full flex items-center justify-center text-xs font-bold border",
                     isAdmin
-                      ? "bg-gradient-to-tr from-indigo-600 to-purple-600"
-                      : "bg-gradient-to-tr from-cyan-600 to-indigo-600"
-                  }`}
+                      ? "bg-accent text-accent-foreground border-accent"
+                      : "bg-primary text-primary-foreground border-primary"
+                  )}
+                  aria-hidden="true"
                 >
-                  {user.full_name
-                    ? user.full_name.charAt(0).toUpperCase()
-                    : user.email.charAt(0).toUpperCase()}
+                  {(user.full_name || user.email || "U").charAt(0).toUpperCase()}
                 </div>
-                <div className="hidden lg:block text-left text-xs">
-                  <div className="font-semibold text-zinc-200 truncate max-w-[130px]">
+                <div className="hidden lg:flex flex-col text-left text-xs">
+                  <span className="font-bold text-foreground truncate max-w-[140px]">
                     {user.full_name || user.email.split("@")[0]}
-                  </div>
-                  <div
-                    className={`text-[10px] font-mono uppercase ${
-                      isAdmin ? "text-indigo-400 font-bold" : "text-zinc-500"
-                    }`}
-                  >
-                    {isAdmin ? "Адміністратор" : "Користувач"}
-                  </div>
+                  </span>
+                  <span className="text-[11px] font-mono uppercase text-muted-foreground">
+                    {isAdmin ? "Адміністратор" : "Читач"}
+                  </span>
                 </div>
 
-                <button
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
                   onClick={logout}
-                  className="p-2 rounded-lg text-zinc-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-                  title="Вийти з акаунту"
+                  aria-label="Вийти з облікового запису"
+                  title="Вийти з облікового запису"
                 >
-                  <LogOut className="w-4 h-4" />
-                </button>
+                  <LogOut className="size-4" />
+                </Button>
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Link
-                href="/login"
-                className="px-3.5 py-2 text-sm font-medium text-zinc-300 hover:text-white transition-colors"
-              >
-                Вхід
-              </Link>
-              <Link
-                href="/register"
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20 hover:shadow-cyan-500/35 hover:brightness-110 transition-all"
-              >
-                Реєстрація
-              </Link>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/login">Увійти</Link>
+              </Button>
+              <Button asChild variant="default" size="sm">
+                <Link href="/register">Створити акаунт</Link>
+              </Button>
             </div>
           )}
         </div>
       </div>
+
+      {/* Мобільна навігація */}
+      <nav
+        aria-label="Мобільна навігація"
+        className="flex md:hidden items-center justify-around border-t border-border/70 bg-card/90 px-2 py-1.5"
+      >
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = isActive(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                active
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Icon className="size-4" />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
     </header>
   );
 };

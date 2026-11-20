@@ -252,6 +252,12 @@ class FactCheckService:
 
         if added_count > 0:
             await db.commit()
+            try:
+                from app.services.embedding_service import embedding_service
+
+                await embedding_service.backfill_null_embeddings(db)
+            except Exception as emb_err:
+                logger.debug("Помилка генерації pgvector ембедингів для нових фактчеків: %s", emb_err)
 
         total_res = await db.execute(select(func.count(FactCheckClaim.id)))
         total_count = total_res.scalar() or 0

@@ -468,5 +468,82 @@ class EmbeddingService:
             logger.debug("Не вдалося оновити embedding для фактчеку %s: %s", claim_id, e)
         return vec
 
+    async def backfill_null_embeddings(self, db: AsyncSession, limit: int = 300) -> int:
+        """
+        Автоматично обчислює та записує 256-вимірні вектори `embedding` у PostgreSQL (pgvector)
+        для всіх нових статей (`articles`) та фактчеків (`fact_check_claims`), де `embedding IS NULL`.
+        Викликається одразу після додавання нових новин із RSS або синхронізації фактчеків.
+        """
+        bind = db.get_bind()
+        if "postgresql" not in bind.dialect.name.lower():
+            return 0
+
+        updated_total = 0
+        try:
+            new_arts = (
+                await db.execute(
+                    text(
+                        "SELECT id, title, summary, full_text "
+                        "FROM articles WHERE embedding IS NULL LIMIT :lim"
+                    ),
+                    {"lim": limit},
+                )
+            ).mappings().all()
+
+            if new_arts:
+                pairs = [
+                    (str(r["title"] or ""), str(r["summary"] or r["full_text"] or ""))
+                    for r in new_arts
+                ]
+                vecs = self.encode_batch(pairs)
+                params = [
+                    {"aid": int(r["id"]), "vec": self.to_pgvector_str(v)}
+                    for r, v in zip(new_arts, vecs)
+                ]
+                await db.execute(
+                    text("UPDATE articles SET embedding = CAST(:vec AS vector) WHERE id = :aid"),
+                    params,
+                )
+                updated_total += len(new_arts)
+
+            new_claims = (
+                await db.execute(
+                    text(
+                        "SELECT id, claim, explanation "
+                        "FROM fact_check_claims WHERE embedding IS NULL LIMIT :lim"
+                    ),
+                    {"lim": limit},
+                )
+            ).mappings().all()
+
+            if new_claims:
+                c_pairs = [
+                    (str(r["claim"] or ""), str(r["explanation"] or ""))
+                    for r in new_claims
+                ]
+                c_vecs = self.encode_batch(c_pairs)
+                c_params = [
+                    {"cid": int(r["id"]), "vec": self.to_pgvector_str(v)}
+                    for r, v in zip(new_claims, c_vecs)
+                ]
+                await db.execute(
+                    text(
+                        "UPDATE fact_check_claims SET embedding = CAST(:vec AS vector) WHERE id = :cid"
+                    ),
+                    c_params,
+                )
+                updated_total += len(new_claims)
+
+            if updated_total > 0:
+                await db.commit()
+                logger.info(
+                    "Автоматично згенеровано pgvector ембединги для %d нових записів.",
+                    updated_total,
+                )
+        except Exception as e:
+            logger.warning("Не вдалося дозаповнити pgvector ембединги: %s", e)
+
+        return updated_total
+
 
 embedding_service = EmbeddingService()

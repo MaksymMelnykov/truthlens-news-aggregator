@@ -2,8 +2,8 @@ name: TruthLens 24/7 News & FactCheck Ingestion
 
 on:
   schedule:
-    # Запускається автоматично кожні 5 хвилин цілодобово (24/7)
-    - cron: "*/5 * * * *"
+    # Запускається щогодини на 17-й хвилині (оминає пік черги GitHub о :00 та жорсткий тротлінг */5)
+    - cron: "17 * * * *"
   workflow_dispatch:
     # Дозволяє також запустити збір новин вручну кнопкою "Run workflow" у вкладці Actions на GitHub
 
@@ -25,12 +25,16 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-          cache-dependency-path: "**/requirements.txt"
+          cache-dependency-path: "**/requirements-cron.txt"
 
       - name: Install backend dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install fastapi pydantic pydantic-settings email-validator python-dotenv "sqlalchemy[asyncio]" greenlet asyncpg psycopg2-binary aiosqlite feedparser trafilatura lxml_html_clean beautifulsoup4 httpx APScheduler scikit-learn joblib matplotlib numpy pyjwt "passlib[bcrypt]" bcrypt
+          if [ -f "NewsAggregatorApp/backend/requirements-cron.txt" ]; then
+            REQ_FILE="NewsAggregatorApp/backend/requirements-cron.txt"
+          else
+            REQ_FILE="backend/requirements-cron.txt"
+          fi
+          pip install --prefer-binary -r "$REQ_FILE"
 
       - name: Run 24/7 RSS News & FactCheck Sync into Cloud PostgreSQL
         env:

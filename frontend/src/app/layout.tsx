@@ -1,14 +1,29 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { Header } from "@/components/Header";
+import { Toaster } from "@/components/ui/sonner";
+import { BrandLogo } from "@/components/ui/brand-logo";
 
-const inter = Inter({ subsets: ["latin", "cyrillic"] });
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin", "cyrillic-ext"],
+  weight: ["400", "500", "600", "700", "800"],
+  variable: "--font-sans",
+  display: "swap",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin", "cyrillic"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
-  title: "TruthLens — Агрегатор новин з виявленням неправдивої інформації",
-  description: "Інтелектуальний агрегатор новин з гібридною системою перевірки достовірності, стилометричним аналізом та XAI-поясненнями",
+  title: "TruthLens — Платформа моніторингу медіа та верифікації новин",
+  description:
+    "Професійна платформа верифікації новин у реальному часі: крос-медійна перевірка фактів, стилометричний аналіз маніпуляцій, репутація доменів та прозорий XAI-аудит.",
 };
 
 export default function RootLayout({
@@ -17,21 +32,43 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="uk" className="dark h-full">
-      <body className={`${inter.className} bg-zinc-950 text-zinc-100 min-h-full flex flex-col antialiased`}>
+    <html
+      lang="uk"
+      className={`${jakarta.variable} ${jetbrainsMono.variable} dark h-full`}
+    >
+      <body
+        className={`${jakarta.className} bg-background text-foreground min-h-full flex flex-col antialiased`}
+      >
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-xl focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-bold focus:text-primary-foreground"
+        >
+          Перейти до основного вмісту
+        </a>
         <AuthProvider>
           <Header />
-          <main className="flex-grow">{children}</main>
-          <footer className="border-t border-zinc-800/60 bg-zinc-950/80 py-8 text-center text-xs text-zinc-500">
-            <div className="max-w-7xl mx-auto px-4">
-              <p className="mb-2">
-                <span className="font-semibold text-zinc-400">TruthLens</span> — Кваліфікаційна магістерська робота (КМР) 2026
-              </p>
-              <p>
-                Гібридний аналіз дезінформації: Стилометрія • NLP Transformers • Репутація доменів • Пояснювальний ШІ (XAI)
+          <main id="main-content" className="flex-grow">
+            {children}
+          </main>
+          <footer className="border-t border-border bg-card/60 py-8 text-xs text-muted-foreground">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <BrandLogo size="sm" />
+                <div className="text-left">
+                  <p className="font-bold text-foreground">
+                    TruthLens Media Intelligence
+                  </p>
+                  <p className="text-muted-foreground">
+                    Незалежна платформа верифікації новин та протидії дезінформації
+                  </p>
+                </div>
+              </div>
+              <p className="text-center sm:text-right text-muted-foreground">
+                Крос-верифікація ЗМІ • Моніторинг медіапростору • Пояснювальний ШІ (XAI)
               </p>
             </div>
           </footer>
+          <Toaster />
         </AuthProvider>
       </body>
     </html>

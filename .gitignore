@@ -37,3 +37,7 @@ Thumbs.db
 .agents/
 .vscode/
 
+# Thesis & local documentation (keep local only, exclude from GitHub)
+docs/
+
+

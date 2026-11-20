@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
+import { toast } from "sonner";
 import { Article, ArticleDetail } from "@/types";
 import { TrustBadge } from "./TrustBadge";
 import { XaiReportModal } from "./XaiReportModal";
@@ -10,8 +12,13 @@ import {
   ExternalLink,
   Fingerprint,
   FileText,
+  Globe,
+  MapPin,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 interface NewsCardProps {
   article: Article;
@@ -53,6 +60,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         if (res.ok) {
           setIsBookmarked(false);
           onBookmarkChange?.(article.id, false);
+          toast("Видалено зі збережених матеріалів");
         }
       } else {
         const res = await fetch(`${apiUrl}/bookmarks/${article.id}`, {
@@ -62,20 +70,22 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         if (res.ok) {
           setIsBookmarked(true);
           onBookmarkChange?.(article.id, true);
+          toast.success("Новину збережено у закладки");
         }
       }
-    } catch (err) {
-      console.error("Помилка збереження закладки", err);
+    } catch {
+      toast.error("Не вдалося оновити статус закладки");
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const [imgSrc, setImgSrc] = useState<string | null>(article.image_url || null);
+  const [imgSrc] = useState<string | null>(article.image_url || null);
   const [imgFailed, setImgFailed] = useState<boolean>(false);
   const [showXai, setShowXai] = useState<boolean>(false);
   const [xaiDetail, setXaiDetail] = useState<ArticleDetail | null>(null);
   const [loadingXai, setLoadingXai] = useState<boolean>(false);
+  const [xaiError, setXaiError] = useState<string | null>(null);
 
   const toggleXaiPanel = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -86,207 +96,218 @@ export const NewsCard: React.FC<NewsCardProps> = ({
 
     if (nextState && !xaiDetail && !loadingXai) {
       setLoadingXai(true);
+      setXaiError(null);
       try {
         const headers: Record<string, string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
         const res = await fetch(`${apiUrl}/news/${article.id}`, { headers });
-        if (res.ok) {
-          const data: ArticleDetail = await res.json();
-          setXaiDetail(data);
+        if (!res.ok) {
+          throw new Error("Не вдалося завантажити аналітичний звіт для цієї статті");
         }
-      } catch (err) {
-        console.error("Не вдалося завантажити XAI-деталі статті", err);
+        const data: ArticleDetail = await res.json();
+        setXaiDetail(data);
+      } catch (err: unknown) {
+        setXaiError(
+          err instanceof Error
+            ? err.message
+            : "Помилка завантаження XAI-звіту"
+        );
       } finally {
         setLoadingXai(false);
       }
     }
   };
 
-  const formattedDate = new Date(article.published_at).toLocaleDateString("uk-UA", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const formattedDate = new Date(article.published_at).toLocaleDateString(
+    "uk-UA",
+    {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
 
   const isInternational = article.language === "en";
 
   return (
-    <article className="group flex flex-col justify-between overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 sm:p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-zinc-700 hover:bg-zinc-900/90 hover:shadow-2xl hover:shadow-cyan-950/30">
-      <div>
-        {/* Обкладинка статті */}
-        {imgSrc && !imgFailed ? (
-          <div className="relative w-full aspect-video overflow-hidden rounded-xl mb-3.5 bg-zinc-950 border border-zinc-800/80">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imgSrc}
-              alt={article.title}
-              loading="lazy"
-              onError={() => setImgFailed(true)}
-              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            />
-            {/* Тонкий градієнтний оверлей */}
-            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-transparent to-transparent pointer-events-none" />
+    <motion.article
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      whileHover={{ y: -3 }}
+      transition={{ duration: 0.24, ease: [0.2, 0, 0, 1] }}
+      className="h-full"
+    >
+      <Card className="group h-full justify-between transition-colors hover:border-primary/45">
+        <div className="flex flex-col gap-3.5">
+          {imgSrc && !imgFailed ? (
+            <div className="relative w-full aspect-video overflow-hidden rounded-xl border border-border bg-background">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imgSrc}
+                alt={article.title}
+                loading="lazy"
+                onError={() => setImgFailed(true)}
+                className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-transparent to-transparent pointer-events-none" />
 
-            {/* Бейдж мови/регіону зверху на фото */}
-            <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold backdrop-blur-md border shadow-sm ${
-                  isInternational
-                    ? "bg-indigo-500/80 text-white border-indigo-400/40"
-                    : "bg-blue-600/80 text-white border-blue-400/40"
-                }`}
+              <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
+                <Badge variant={isInternational ? "default" : "secondary"}>
+                  {isInternational ? (
+                    <Globe className="size-3.5" />
+                  ) : (
+                    <MapPin className="size-3.5" />
+                  )}
+                  <span>{isInternational ? "Світ (EN)" : "Україна"}</span>
+                </Badge>
+                <Badge variant="outline">{article.category}</Badge>
+              </div>
+
+              <Button
+                type="button"
+                variant={isBookmarked ? "accent" : "secondary"}
+                size="icon"
+                onClick={toggleBookmark}
+                disabled={isUpdating}
+                className="absolute top-2.5 right-2.5 size-8"
+                aria-label={
+                  user
+                    ? isBookmarked
+                      ? "Видалити із закладок"
+                      : "Зберегти в закладки"
+                    : "Увійдіть, щоб зберегти"
+                }
+                title={
+                  user
+                    ? isBookmarked
+                      ? "Видалити із закладок"
+                      : "Зберегти в закладки"
+                    : "Увійдіть, щоб зберегти"
+                }
               >
-                {isInternational ? "🌍 Світ (EN)" : "🇺🇦 UA"}
-              </span>
+                <Bookmark className="size-4" />
+              </Button>
+            </div>
+          ) : (
+            <CardHeader className="flex-row items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant={isInternational ? "default" : "secondary"}>
+                  {isInternational ? (
+                    <Globe className="size-3.5" />
+                  ) : (
+                    <MapPin className="size-3.5" />
+                  )}
+                  <span>{isInternational ? "Світ (EN)" : "Україна"}</span>
+                </Badge>
+                <Badge variant="outline">{article.category}</Badge>
+              </div>
 
-              <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-900/80 text-zinc-300 border border-zinc-700/60 backdrop-blur-md">
-                {article.category}
+              <Button
+                type="button"
+                variant={isBookmarked ? "accent" : "ghost"}
+                size="icon"
+                onClick={toggleBookmark}
+                disabled={isUpdating}
+                className="size-8"
+                aria-label={
+                  user
+                    ? isBookmarked
+                      ? "Видалити із закладок"
+                      : "Зберегти в закладки"
+                    : "Увійдіть, щоб зберегти"
+                }
+              >
+                <Bookmark className="size-4" />
+              </Button>
+            </CardHeader>
+          )}
+
+          <CardContent className="gap-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+              <span className="font-semibold text-foreground">
+                {article.source_name}
               </span>
+              <span className="font-mono text-[11px]">{article.domain}</span>
+              <span
+                className="size-1 rounded-full bg-border"
+                aria-hidden="true"
+              />
+              <span className="tabular-nums text-[11px]">{formattedDate}</span>
             </div>
 
-            {/* Кнопка закладки зверху праворуч */}
-            <button
-              onClick={toggleBookmark}
-              disabled={isUpdating}
-              className={`absolute top-2.5 right-2.5 p-1.5 rounded-lg backdrop-blur-md border transition-all ${
-                isBookmarked
-                  ? "bg-cyan-500/80 text-zinc-950 border-cyan-400"
-                  : "bg-zinc-900/70 text-zinc-300 border-zinc-700/60 hover:text-white hover:bg-zinc-800"
-              }`}
-              title={
-                user
-                  ? isBookmarked
-                    ? "Видалити із закладок"
-                    : "Зберегти в закладки"
-                  : "Увійдіть, щоб зберегти"
-              }
-            >
-              <Bookmark
-                className={`w-3.5 h-3.5 ${isBookmarked ? "fill-zinc-950" : ""}`}
-              />
-            </button>
-          </div>
-        ) : (
-          /* Верхній рядок без фото (фолбек): Джерело та закладка */
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-1.5">
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold border ${
-                  isInternational
-                    ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
-                    : "bg-blue-500/20 text-blue-300 border-blue-500/30"
-                }`}
+            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2 leading-snug">
+              <a
+                href={article.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-start gap-1.5"
               >
-                {isInternational ? "🌍 Світ" : "🇺🇦 UA"}
-              </span>
-              <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-zinc-800 text-zinc-400">
-                {article.category}
-              </span>
-            </div>
+                <span>{article.title}</span>
+                <ExternalLink className="size-4 mt-0.5 opacity-60 group-hover:opacity-100 transition-opacity shrink-0" />
+              </a>
+            </h3>
 
-            <button
-              onClick={toggleBookmark}
-              disabled={isUpdating}
-              className={`p-1.5 rounded-lg border transition-all ${
-                isBookmarked
-                  ? "bg-cyan-500/20 text-cyan-400 border-cyan-500/40"
-                  : "text-zinc-500 border-transparent hover:text-zinc-300 hover:bg-zinc-800"
-              }`}
-              title={
-                user
-                  ? isBookmarked
-                    ? "Видалити із закладок"
-                    : "Зберегти в закладки"
-                  : "Увійдіть, щоб зберегти"
-              }
-            >
-              <Bookmark
-                className={`w-4 h-4 ${isBookmarked ? "fill-cyan-400" : ""}`}
-              />
-            </button>
-          </div>
-        )}
-
-        {/* Джерело та дата */}
-        <div className="flex items-center gap-2 mb-2 text-xs">
-          <span className="font-semibold text-zinc-300">
-            {article.source_name}
-          </span>
-          <span className="text-[11px] font-mono text-zinc-500">
-            {article.domain}
-          </span>
-          <span className="w-1 h-1 rounded-full bg-zinc-700" />
-          <span className="text-[11px] text-zinc-500">{formattedDate}</span>
+            {article.summary && (
+              <p className="text-xs sm:text-sm text-muted-foreground line-clamp-3 leading-relaxed">
+                {article.summary}
+              </p>
+            )}
+          </CardContent>
         </div>
 
-        {/* Заголовок */}
-        <h3 className="font-bold text-base text-zinc-100 group-hover:text-cyan-300 transition-colors line-clamp-2 mb-2 leading-snug">
-          <a
-            href={article.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5"
-          >
-            <span>{article.title}</span>
-            <ExternalLink className="w-3.5 h-3.5 opacity-0 group-hover:opacity-70 transition-opacity flex-shrink-0" />
-          </a>
-        </h3>
-
-        {/* Короткий зміст */}
-        {article.summary && (
-          <p className="text-xs sm:text-sm text-zinc-400 line-clamp-2 sm:line-clamp-3 mb-4 leading-relaxed font-normal">
-            {article.summary}
-          </p>
-        )}
-      </div>
-
-      {/* Нижня панель: кнопка відкриття модального вікна XAI + перехід на /news/[id] + Trust Score */}
-      <div className="pt-3 mt-2 border-t border-zinc-800/80">
-        <div className="flex items-center justify-between gap-2">
+        <CardFooter className="flex-wrap gap-2">
           <div className="flex items-center gap-1.5">
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={toggleXaiPanel}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-zinc-800/80 hover:bg-cyan-500 hover:text-zinc-950 text-cyan-300 border border-zinc-700/70 hover:border-cyan-400 transition-all"
-              title="Відкрити швидкий XAI-розбір у модальному вікні"
+              aria-label={`Швидкий XAI-розбір: ${article.title}`}
             >
-              <Fingerprint className="w-3.5 h-3.5" />
-              <span>Чому така оцінка?</span>
-            </button>
+              <Fingerprint className="size-4 text-primary" />
+              <span>XAI Розбір</span>
+            </Button>
 
-            <Link
-              href={`/news/${article.id}`}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 hover:border-zinc-700 transition-all"
-              title="Відкрити повний текст статті з підсвічуванням фраз і токенів ШІ"
-            >
-              <FileText className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Повний розбір</span>
-            </Link>
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={`/news/${article.id}`}
+                aria-label={`Повний розбір статті: ${article.title}`}
+              >
+                <FileText className="size-4 text-accent" />
+                <span>Деталі</span>
+              </Link>
+            </Button>
           </div>
 
-          <TrustBadge score={article.trust_score} verdict={article.verdict} size="sm" />
-        </div>
-      </div>
+          <TrustBadge
+            score={article.trust_score}
+            verdict={article.verdict}
+            size="sm"
+          />
+        </CardFooter>
 
-      {/* Модальне вікно XAI-розбору статті */}
-      <XaiReportModal
-        isOpen={showXai}
-        onClose={() => setShowXai(false)}
-        loading={loadingXai}
-        data={
-          xaiDetail
-            ? {
-                article_id: article.id,
-                title: xaiDetail.title,
-                domain: xaiDetail.domain || article.domain,
-                url: xaiDetail.url || article.url,
-                published_at: xaiDetail.published_at,
-                trust_breakdown: xaiDetail.trust_breakdown,
-              }
-            : null
-        }
-      />
-    </article>
+        <XaiReportModal
+          isOpen={showXai}
+          onClose={() => setShowXai(false)}
+          loading={loadingXai}
+          error={xaiError}
+          data={
+            xaiDetail
+              ? {
+                  article_id: article.id,
+                  title: xaiDetail.title,
+                  domain: xaiDetail.domain || article.domain,
+                  url: xaiDetail.url || article.url,
+                  published_at: xaiDetail.published_at,
+                  trust_breakdown: xaiDetail.trust_breakdown,
+                }
+              : null
+          }
+        />
+      </Card>
+    </motion.article>
   );
 };

@@ -909,6 +909,12 @@ class NewsIngestionService:
 
         if new_articles_count > 0:
             await db.commit()
+            try:
+                from app.services.embedding_service import embedding_service
+
+                await embedding_service.backfill_null_embeddings(db)
+            except Exception as emb_err:
+                logger.debug("Помилка генерації pgvector ембедингів після імпорту RSS: %s", emb_err)
             logger.info(f"[{source.name}] Успішно додано {new_articles_count} нових статей.")
 
         return new_articles_count

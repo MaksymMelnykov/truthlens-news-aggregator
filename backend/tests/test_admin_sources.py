@@ -61,3 +61,13 @@ async def test_sources_and_rbac():
         assert pub_list.status_code == 200
         domains = [s["domain"] for s in pub_list.json()]
         assert "radiosvoboda.org" in domains
+
+        # 7. Аналітика має відображати нове додане джерело навіть із 0 статей
+        analytics_res = await client.get("/api/v1/analytics/overview")
+        assert analytics_res.status_code == 200
+        top_sources = analytics_res.json()["top_sources"]
+        rs_entry = next((s for s in top_sources if s["domain"] == "radiosvoboda.org"), None)
+        assert rs_entry is not None
+        assert rs_entry["source_name"] == "Радіо Свобода (UA)"
+        assert rs_entry["reliability_rating"] == 96.0
+        assert rs_entry["articles_count"] == 0
