@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
@@ -748,7 +749,7 @@ class NewsIngestionService:
             "date": None,
         }
         try:
-            async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=12.0) as client:
+            async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=8.0) as client:
                 res = await client.get(url)
                 if res.status_code == 200:
                     html = res.text
@@ -781,8 +782,8 @@ class NewsIngestionService:
 
         return details
 
-    async def ingest_feed(self, db: AsyncSession, feed_config: Dict[str, Any], max_items: int = 15) -> int:
-        """Обробка однієї RSS-стрічки та додавання нових статей до бази з витягом обкладинок."""
+    async def ingest_feed(self, db: AsyncSession, feed_config: Dict[str, Any], max_items: int = 100) -> int:
+        """Обробка однієї RSS-стрічки та додавання всіх нових статей до бази з паралельним витягом текстів."""
         source = await self.get_or_create_source(db, feed_config)
         rss_url = feed_config["rss_url"]
         feed_language = feed_config.get("language", "ua")
@@ -795,26 +796,55 @@ class NewsIngestionService:
             logger.info(f"Стрічка {feed_config['name']} не містить записів або недоступна.")
             return 0
 
-        new_articles_count = 0
-
+        # 1. Попередній відбір валідних кандидатів і дедуплікація в межах стрічки
+        candidates: List[tuple[Any, str, str]] = []
+        seen_in_feed: set[str] = set()
         for entry in parsed_feed.entries[:max_items]:
             raw_url = getattr(entry, "link", None)
             title = getattr(entry, "title", "").strip()
             if not raw_url or not title:
                 continue
 
-            # Сувора перевірка на мову (відсікаємо російськомовний контент)
             if not is_valid_article_content(title, language=feed_language):
                 logger.info(f"Пропущено статтю через невідповідність мови: {title}")
                 continue
 
             article_url = normalize_url(raw_url)
-
-            # Перевірка дедуплікації в базі
-            existing_article = await db.execute(select(Article.id).where(Article.url == article_url))
-            if existing_article.scalar_one_or_none():
+            if not article_url or article_url in seen_in_feed:
                 continue
+            seen_in_feed.add(article_url)
+            candidates.append((entry, title, article_url))
 
+        if not candidates:
+            return 0
+
+        # 2. Пакетна перевірка дедуплікації в БД одним SQL-запитом
+        candidate_urls = [url for _, _, url in candidates]
+        existing_res = await db.execute(
+            select(Article.url).where(Article.url.in_(candidate_urls))
+        )
+        existing_urls = set(existing_res.scalars().all())
+        new_candidates = [
+            (entry, title, url) for entry, title, url in candidates if url not in existing_urls
+        ]
+
+        if not new_candidates:
+            return 0
+
+        # 3. Паралельне завантаження повного тексту та обкладинок для нових статей (до 6 одночасно)
+        sem = asyncio.Semaphore(6)
+
+        async def _fetch_details_guarded(target_url: str) -> Dict[str, Optional[str]]:
+            async with sem:
+                return await self.extract_article_details(target_url)
+
+        details_list = await asyncio.gather(
+            *(_fetch_details_guarded(url) for _, _, url in new_candidates)
+        )
+
+        new_articles_count = 0
+
+        for (entry, title, article_url), details in zip(new_candidates, details_list):
             raw_summary = getattr(entry, "summary", "") or getattr(entry, "description", "")
 
             # 1. Пошук зображення безпосередньо в елементі RSS стрічки
@@ -853,7 +883,6 @@ class NewsIngestionService:
             summary = re.sub(r"<[^>]+>", "", raw_summary).strip() if raw_summary else ""
 
             # 2. Витяг повного тексту та метаданих
-            details = await self.extract_article_details(article_url)
             full_text = details.get("full_text") or summary
 
             # Якщо зображення ще не знайдено — беремо зі сторінки через OpenGraph / trafilatura
@@ -912,14 +941,14 @@ class NewsIngestionService:
             try:
                 from app.services.embedding_service import embedding_service
 
-                await embedding_service.backfill_null_embeddings(db)
+                await embedding_service.backfill_null_embeddings(db, limit=1000)
             except Exception as emb_err:
                 logger.debug("Помилка генерації pgvector ембедингів після імпорту RSS: %s", emb_err)
             logger.info(f"[{source.name}] Успішно додано {new_articles_count} нових статей.")
 
         return new_articles_count
 
-    async def sync_all_feeds(self, db: AsyncSession, max_per_feed: int = 15) -> Dict[str, Any]:
+    async def sync_all_feeds(self, db: AsyncSession, max_per_feed: int = 100) -> Dict[str, Any]:
         """Синхронізація всіх зареєстрованих RSS стрічок (базових + доданих адміністратором у БД)."""
         start_time = datetime.now()
         total_new = 0

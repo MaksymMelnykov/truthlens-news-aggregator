@@ -23,7 +23,7 @@ def _normalize_domain(raw_domain: str) -> str:
     return cleaned.split("/")[0].strip()
 
 
-async def _background_ingest_source(source_id: int, max_items: int = 15) -> None:
+async def _background_ingest_source(source_id: int, max_items: int = 100) -> None:
     """Фоновий миттєвий імпорт новин із RSS щойно доданого або оновленого джерела."""
     try:
         from app.services.ingestion import news_ingestion_service
@@ -99,7 +99,7 @@ async def create_source(
     await db.refresh(source)
 
     if source.rss_url and not source.is_blacklisted:
-        background_tasks.add_task(_background_ingest_source, source.id, 15)
+        background_tasks.add_task(_background_ingest_source, source.id, 100)
 
     return SourceRead.model_validate(source)
 
@@ -136,7 +136,7 @@ async def update_source(
     await db.refresh(source)
 
     if source.rss_url and source.rss_url != old_rss and not source.is_blacklisted:
-        background_tasks.add_task(_background_ingest_source, source.id, 15)
+        background_tasks.add_task(_background_ingest_source, source.id, 100)
 
     return SourceRead.model_validate(source)
 
@@ -144,7 +144,7 @@ async def update_source(
 @router.post("/{source_id}/fetch-rss")
 async def fetch_source_rss_now(
     source_id: int,
-    max_items: int = Query(10, ge=1, le=30),
+    max_items: int = Query(100, ge=1, le=200),
     admin: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):

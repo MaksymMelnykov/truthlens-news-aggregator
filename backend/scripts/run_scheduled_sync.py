@@ -44,7 +44,7 @@ async def run_sync() -> None:
     # 2. Синхронізація бази спростувань (StopFake & VoxCheck)
     async with async_session_maker() as db:
         try:
-            fc_res = await fact_check_service.sync_all_fact_checks(db, pages=2)
+            fc_res = await fact_check_service.sync_all_fact_checks(db, pages=3)
             logger.info(
                 "Фактчеки синхронізовано: +%s нових спростувань (усього в базі: %s)",
                 fc_res.get("new_claims_added", 0),
@@ -74,7 +74,7 @@ async def run_sync() -> None:
             try:
                 new_arts = (
                     await conn.execute(
-                        text("SELECT id, title, summary, full_text FROM articles WHERE embedding IS NULL LIMIT 300")
+                        text("SELECT id, title, summary, full_text FROM articles WHERE embedding IS NULL LIMIT 1500")
                     )
                 ).mappings().all()
                 if new_arts:

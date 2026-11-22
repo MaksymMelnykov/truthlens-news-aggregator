@@ -250,7 +250,7 @@ async def get_news_feed(
 
 @router.post("/sync", tags=["News Ingestion"])
 async def trigger_news_sync(
-    max_per_feed: int = Query(15, ge=1, le=50, description="Максимальна кількість новин з кожного каналу"),
+    max_per_feed: int = Query(100, ge=1, le=200, description="Максимальна кількість новин з кожного каналу"),
     db: AsyncSession = Depends(get_db)
 ):
     """

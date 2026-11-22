@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # Ingestion configuration
     INGESTION_INTERVAL_MINUTES: int = 5
-    MAX_ARTICLES_PER_FEED: int = 20
+    MAX_ARTICLES_PER_FEED: int = 100
 
     # Fact Checking APIs
     GOOGLE_FACT_CHECK_API_KEY: str = ""

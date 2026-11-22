@@ -468,7 +468,7 @@ class EmbeddingService:
             logger.debug("Не вдалося оновити embedding для фактчеку %s: %s", claim_id, e)
         return vec
 
-    async def backfill_null_embeddings(self, db: AsyncSession, limit: int = 300) -> int:
+    async def backfill_null_embeddings(self, db: AsyncSession, limit: int = 1000) -> int:
         """
         Автоматично обчислює та записує 256-вимірні вектори `embedding` у PostgreSQL (pgvector)
         для всіх нових статей (`articles`) та фактчеків (`fact_check_claims`), де `embedding IS NULL`.
