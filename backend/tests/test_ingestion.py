@@ -84,20 +84,20 @@ def test_language_filter():
     assert is_valid_article_content("AI breakthrough helps medical researchers model proteins", language="en") is True
 
 
-def test_international_feeds_and_categories():
-    """Перевірка наявності міжнародних стрічок та багатомовного визначення категорій."""
-    # Перевірка наявності міжнародних джерел у списку стрічок
-    intl_feeds = [f for f in DEFAULT_FEEDS if f["language"] == "en"]
-    assert len(intl_feeds) >= 5
-    assert any("BBC World" in f["name"] for f in intl_feeds)
-    assert any("The Guardian" in f["name"] for f in intl_feeds)
-    assert any("DW" in f["name"] for f in intl_feeds)
+def test_ukrainian_feeds_and_sport_world_categories():
+    """Перевірка виключно україномовного каталогу стрічок (включно зі спортом) та категорій «Спорт» і «Світ»."""
+    assert all(f["language"] == "ua" for f in DEFAULT_FEEDS)
+    assert any("Sport.ua" in f["name"] for f in DEFAULT_FEEDS)
+    assert any("Чемпіон" in f["name"] for f in DEFAULT_FEEDS)
 
-    # Перевірка багатомовного визначення категорій (EN)
-    assert infer_category("US Congress passes defense and military budget", [], "") == "Політика"
-    assert infer_category("New generative AI and computer hardware chip announced", [], "") == "Технології"
-    assert infer_category("Stock market inflation and global economy report", [], "") == "Економіка"
-    assert infer_category("Hospital cancer research and new disease vaccines", [], "") == "Здоров'я"
+    # Перевірка категорії «Спорт»
+    assert infer_category("Збірна України здобула перемогу в матчі Ліги чемпіонів", [], "") == "Спорт"
+    assert infer_category("Олександр Усик проведе захист титулу в Лондоні", [], "") == "Спорт"
+    assert infer_category("Будь-яка новина", [], "https://sport.ua/uk/news/123") == "Спорт"
+
+    # Перевірка категорії «Світ» (новини українських ЗМІ про міжнародні події)
+    assert infer_category("У Вашингтоні обговорили новий договір між США та ЄС", [], "") == "Світ"
+    assert infer_category("У Берліні та Парижі відбувся саміт лідерів Євросоюзу", [], "") == "Світ"
 
 
 @pytest.mark.asyncio

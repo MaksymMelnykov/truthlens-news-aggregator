@@ -32,13 +32,6 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -96,7 +89,6 @@ export default function AdminSourcesPage() {
   const [domain, setDomain] = useState("");
   const [homepageUrl, setHomepageUrl] = useState("");
   const [rssUrl, setRssUrl] = useState("");
-  const [language, setLanguage] = useState<"ua" | "en">("ua");
   const [rating, setRating] = useState<number>(88);
   const [listStatus, setListStatus] = useState<"whitelist" | "neutral" | "blacklist">("whitelist");
   const [saving, setSaving] = useState(false);
@@ -130,7 +122,6 @@ export default function AdminSourcesPage() {
     setDomain("");
     setHomepageUrl("");
     setRssUrl("");
-    setLanguage("ua");
     setRating(88);
     setListStatus("whitelist");
     setIsModalOpen(true);
@@ -142,7 +133,6 @@ export default function AdminSourcesPage() {
     setDomain(src.domain);
     setHomepageUrl(src.homepage_url || `https://${src.domain}`);
     setRssUrl(src.rss_url || "");
-    setLanguage((src.language === "en" ? "en" : "ua") as "ua" | "en");
     setRating(Math.round(src.reliability_rating));
     if (src.is_whitelisted) {
       setListStatus("whitelist");
@@ -172,8 +162,8 @@ export default function AdminSourcesPage() {
       domain: cleanDomain,
       homepage_url: homepageUrl.trim() || `https://${cleanDomain}`,
       rss_url: rssUrl.trim() || null,
-      language,
-      country: language === "en" ? "INT" : "UA",
+      language: "ua",
+      country: "UA",
       reliability_rating: Number(rating),
       is_whitelisted: listStatus === "whitelist",
       is_blacklisted: listStatus === "blacklist",
@@ -287,10 +277,6 @@ export default function AdminSourcesPage() {
           icon={ShieldAlert}
           title="Доступ обмежено"
           description="Цей розділ призначений виключно для адміністраторів платформи TruthLens."
-          actionLabel="Увійти як Адміністратор"
-          onAction={() => {
-            window.location.href = "/login";
-          }}
         />
       </div>
     );
@@ -462,7 +448,6 @@ export default function AdminSourcesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Назва ЗМІ та Домен</TableHead>
-                <TableHead>Мова</TableHead>
                 <TableHead>RSS-канал (Автозбір)</TableHead>
                 <TableHead>Репутація домену</TableHead>
                 <TableHead>Статус у реєстрі</TableHead>
@@ -478,12 +463,6 @@ export default function AdminSourcesPage() {
                       <Globe className="size-3.5 text-muted-foreground" />
                       <span>{source.domain}</span>
                     </div>
-                  </TableCell>
-
-                  <TableCell>
-                    <Badge variant="secondary" className="font-mono uppercase">
-                      {source.language === "en" ? "EN" : "UA"}
-                    </Badge>
                   </TableCell>
 
                   <TableCell className="max-w-xs">
@@ -647,37 +626,19 @@ export default function AdminSourcesPage() {
                 </Field>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                <Field className="sm:col-span-2">
-                  <FieldLabel htmlFor="src-rss-input">
-                    URL-адреса RSS-каналу (для автозбору)
-                  </FieldLabel>
-                  <Input
-                    id="src-rss-input"
-                    type="url"
-                    placeholder="https://suspilne.media/rss/all.rss"
-                    value={rssUrl}
-                    onChange={(e) => setRssUrl(e.target.value)}
-                    className="font-mono"
-                  />
-                </Field>
-
-                <Field>
-                  <FieldLabel>Мова потоку</FieldLabel>
-                  <Select
-                    value={language}
-                    onValueChange={(val) => setLanguage(val as "ua" | "en")}
-                  >
-                    <SelectTrigger aria-label="Мова потоку">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ua">UA (Українська)</SelectItem>
-                      <SelectItem value="en">EN (World)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
+              <Field>
+                <FieldLabel htmlFor="src-rss-input">
+                  URL-адреса RSS-каналу (для автозбору)
+                </FieldLabel>
+                <Input
+                  id="src-rss-input"
+                  type="url"
+                  placeholder="https://suspilne.media/rss/all.rss"
+                  value={rssUrl}
+                  onChange={(e) => setRssUrl(e.target.value)}
+                  className="font-mono"
+                />
+              </Field>
 
               {/* Повзунок репутації домену */}
               <div className="p-4 rounded-xl bg-secondary/55 border border-border flex flex-col gap-2.5">

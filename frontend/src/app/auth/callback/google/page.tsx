@@ -20,33 +20,33 @@ function GoogleCallbackContent() {
   const hasRequestedRef = React.useRef(false);
 
   useEffect(() => {
+    // Якщо запит обміну коду вже запущено, не реагуємо на повторні спрацювання StrictMode / searchParams
+    if (hasRequestedRef.current) {
+      return;
+    }
+
     const code = searchParams.get("code");
     const errorParam = searchParams.get("error");
 
     if (errorParam) {
-      setError(`Авторизацію через Google скасовано: ${errorParam}`);
+      hasRequestedRef.current = true;
+      setError(`Авторизацію через Google скасовано (${errorParam}).`);
       setIsProcessing(false);
       return;
     }
 
     if (!code) {
+      hasRequestedRef.current = true;
+      // Якщо сторінку відкрили напряму або після натискання "Назад" — тихо перенаправляємо
       if (typeof window !== "undefined" && localStorage.getItem("truthlens_token")) {
         router.replace("/");
-        return;
+      } else {
+        router.replace("/login");
       }
-      setError("Не знайдено коду підтвердження від Google OAuth.");
-      setIsProcessing(false);
       return;
     }
 
-    if (hasRequestedRef.current) {
-      return;
-    }
     hasRequestedRef.current = true;
-
-    if (typeof window !== "undefined") {
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
 
     const exchangeCode = async () => {
       try {
@@ -71,7 +71,11 @@ function GoogleCallbackContent() {
 
         const data = await res.json();
         setSession(data.access_token, data.refresh_token, data.user);
-        router.replace("/");
+        if (data.user?.role === "admin") {
+          router.replace("/admin/analytics");
+        } else {
+          router.replace("/");
+        }
       } catch (err: unknown) {
         if (typeof window !== "undefined" && localStorage.getItem("truthlens_token")) {
           router.replace("/");
@@ -82,12 +86,11 @@ function GoogleCallbackContent() {
             ? err.message
             : "Помилка автентифікації через Google"
         );
-      } finally {
         setIsProcessing(false);
       }
     };
 
-    exchangeCode();
+    void exchangeCode();
   }, [searchParams, apiUrl, router, setSession]);
 
   return (
@@ -102,7 +105,7 @@ function GoogleCallbackContent() {
         </CardHeader>
 
         <CardContent className="w-full items-center">
-          {isProcessing && (
+          {isProcessing && !error && (
             <div className="flex flex-col items-center gap-3 py-4" role="status">
               <Loader2 className="size-6 animate-spin text-primary" />
               <p className="text-xs sm:text-sm text-muted-foreground">

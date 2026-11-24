@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { GuestLimitProvider } from "@/context/GuestLimitContext";
 import { Header } from "@/components/Header";
 import { Toaster } from "@/components/ui/sonner";
 import { BrandLogo } from "@/components/ui/brand-logo";
@@ -46,29 +47,31 @@ export default function RootLayout({
           Перейти до основного вмісту
         </a>
         <AuthProvider>
-          <Header />
-          <main id="main-content" className="flex-grow">
-            {children}
-          </main>
-          <footer className="border-t border-border bg-card/60 py-8 text-xs text-muted-foreground">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <BrandLogo size="sm" />
-                <div className="text-left">
-                  <p className="font-bold text-foreground">
-                    TruthLens Media Intelligence
-                  </p>
-                  <p className="text-muted-foreground">
-                    Незалежна платформа верифікації новин та протидії дезінформації
-                  </p>
+          <GuestLimitProvider>
+            <Header />
+            <main id="main-content" className="flex-grow">
+              {children}
+            </main>
+            <footer className="border-t border-border bg-card/60 py-8 text-xs text-muted-foreground">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <BrandLogo size="sm" />
+                  <div className="text-left">
+                    <p className="font-bold text-foreground">
+                      TruthLens Media Intelligence
+                    </p>
+                    <p className="text-muted-foreground">
+                      Незалежна платформа верифікації новин та протидії дезінформації
+                    </p>
+                  </div>
                 </div>
+                <p className="text-center sm:text-right text-muted-foreground">
+                  Крос-верифікація ЗМІ • Моніторинг медіапростору • Пояснювальний ШІ (XAI)
+                </p>
               </div>
-              <p className="text-center sm:text-right text-muted-foreground">
-                Крос-верифікація ЗМІ • Моніторинг медіапростору • Пояснювальний ШІ (XAI)
-              </p>
-            </div>
-          </footer>
-          <Toaster />
+            </footer>
+            <Toaster />
+          </GuestLimitProvider>
         </AuthProvider>
       </body>
     </html>

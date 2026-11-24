@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from "react"
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { useGuestLimit, GUEST_LIMITS } from "@/context/GuestLimitContext";
 import { FactCheckClaim } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -67,7 +68,8 @@ interface OnlineCheckResult {
 }
 
 export default function FactChecksPage() {
-  const { apiUrl } = useAuth();
+  const { user, isLoading: authLoading, apiUrl } = useAuth();
+  const { isReady: guestReady, getRemaining, consumeFactcheckClaim } = useGuestLimit();
   const [claims, setClaims] = useState<FactCheckClaim[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -80,7 +82,19 @@ export default function FactChecksPage() {
   const [checkText, setCheckText] = useState("");
   const [isChecking, setIsChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<OnlineCheckResult | null>(null);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("щойно");
+  const [expandedClaimIds, setExpandedClaimIds] = useState<Record<number, boolean>>({});
+
+  const toggleClaimExpanded = (id: number) => {
+    setExpandedClaimIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const formatExplanation = (raw?: string | null) => {
+    if (!raw) return "";
+    return raw
+      .replace(/\s*(?:\.{2,3}|…)?\s*Source\s*$/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
 
   const fetchClaims = useCallback(
     async (showLoading = true) => {
@@ -97,13 +111,6 @@ export default function FactChecksPage() {
         }
         const data = await res.json();
         setClaims(data.items || []);
-        const now = new Date();
-        setLastRefreshedAt(
-          `${now.getHours().toString().padStart(2, "0")}:${now
-            .getMinutes()
-            .toString()
-            .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`
-        );
       } catch (err: unknown) {
         if (showLoading) {
           setFetchError(
@@ -146,6 +153,11 @@ export default function FactChecksPage() {
   const handleOnlineCheck = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!checkText.trim()) return;
+
+    if (!user) {
+      const allowed = consumeFactcheckClaim();
+      if (!allowed) return;
+    }
 
     setIsChecking(true);
     setCheckResult(null);
@@ -237,47 +249,34 @@ export default function FactChecksPage() {
           aria-hidden="true"
         />
         <CardHeader className="p-6 sm:p-8 pb-4">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-            <div className="flex flex-col gap-3 max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="accent">
-                  <ShieldAlert className="size-3.5" />
-                  Центр протидії дезінформації та фейкам
-                </Badge>
-                <Badge variant="outline" className="tabular-nums font-mono">
-                  <span className="size-2 rounded-full bg-verified animate-pulse" />
-                  Синхронізовано: {lastRefreshedAt}
-                </Badge>
-              </div>
-              <CardTitle className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">
-                База спростованих фейків та ІПСО
-              </CardTitle>
-              <CardDescription className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-[68ch]">
-                Оперативна база дезінформаційних вкидів та маніпуляцій, верифікованих провідними фактчекерами (StopFake, VoxCheck, Детектор медіа, AFP, Reuters). Автоматично зіставляється з кожною новиною платформи за допомогою векторного пошуку.
-              </CardDescription>
+          <div className="flex flex-col gap-3 max-w-3xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="accent">
+                <ShieldAlert className="size-3.5" />
+                Центр протидії дезінформації та фейкам
+              </Badge>
             </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fetchClaims(true)}
-              disabled={loading}
-              className="self-start shrink-0"
-            >
-              <RefreshCw
-                className={`size-4 text-primary ${loading ? "animate-spin" : ""}`}
-                data-icon="inline-start"
-              />
-              Оновити реєстр
-            </Button>
+            <CardTitle className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-foreground">
+              База спростованих фейків та ІПСО
+            </CardTitle>
+            <CardDescription className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-[68ch]">
+              Оперативна база дезінформаційних вкидів та маніпуляцій, верифікованих провідними фактчекерами (StopFake, VoxCheck, Детектор медіа, AFP, Reuters). Автоматично зіставляється з кожною новиною платформи за допомогою векторного пошуку.
+            </CardDescription>
           </div>
         </CardHeader>
 
         <CardContent className="p-6 sm:p-8 pt-2">
           <div className="rounded-xl border border-border/80 bg-secondary/50 p-4 sm:p-5 flex flex-col gap-3">
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold text-foreground">
-              <Sparkles className="size-4 text-accent shrink-0" />
-              <span>Миттєва семантична звірка будь-якого твердження з базою спростувань:</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs sm:text-sm font-semibold text-foreground">
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-accent shrink-0" />
+                <span>Миттєва семантична звірка будь-якого твердження з базою спростувань:</span>
+              </div>
+              {!authLoading && !user && guestReady && (
+                <Badge variant="outline" className="tabular-nums text-[11px]">
+                  Для гостей: залишилось {getRemaining("factcheck_claim")} з {GUEST_LIMITS.factcheck_claim}
+                </Badge>
+              )}
             </div>
 
             <form
@@ -509,15 +508,40 @@ export default function FactChecksPage() {
                       </CardHeader>
 
                       <CardContent className="px-5 py-0 flex-1">
-                        {claim.explanation ? (
-                          <div className="rounded-xl bg-secondary/55 border border-border/60 p-3 text-xs text-muted-foreground line-clamp-4 leading-relaxed">
-                            {claim.explanation}
-                          </div>
-                        ) : (
-                          <div className="rounded-xl bg-secondary/35 border border-border/40 p-3 text-xs text-muted-foreground italic">
-                            Твердження офіційно спростоване редакцією {claim.fact_checker}.
-                          </div>
-                        )}
+                        {(() => {
+                          const cleanText = formatExplanation(claim.explanation);
+                          const isExpanded = Boolean(expandedClaimIds[claim.id]);
+                          const isLong = cleanText.length > 180;
+                          if (!cleanText) {
+                            return (
+                              <div className="rounded-xl bg-secondary/35 border border-border/40 p-3.5">
+                                <p className="text-[13px] text-muted-foreground italic leading-relaxed">
+                                  Твердження офіційно спростоване редакцією {claim.fact_checker}.
+                                </p>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="rounded-xl bg-secondary/55 border border-border/60 p-3.5 flex flex-col gap-2">
+                              <p
+                                className={`text-[13px] text-muted-foreground leading-relaxed break-words ${
+                                  isExpanded ? "" : "line-clamp-4"
+                                }`}
+                              >
+                                {cleanText}
+                              </p>
+                              {isLong && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleClaimExpanded(claim.id)}
+                                  className="self-start text-xs font-semibold text-primary hover:underline cursor-pointer"
+                                >
+                                  {isExpanded ? "Згорнути" : "Читати повністю"}
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </CardContent>
 
                       <CardFooter className="p-5 pt-4 mt-4 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">

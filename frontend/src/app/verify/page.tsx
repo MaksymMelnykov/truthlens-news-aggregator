@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { useGuestLimit, GUEST_LIMITS } from "@/context/GuestLimitContext";
 import { TrustBadge } from "@/components/TrustBadge";
 import { TrustScoreBreakdown } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -96,8 +97,10 @@ function VerifyContent() {
   const initialUrl = searchParams.get("url") || "";
   const initialReportId = searchParams.get("report_id") || "";
 
-  const { token, apiUrl } = useAuth();
+  const { user, token, isLoading: authLoading, apiUrl } = useAuth();
+  const { isReady: guestReady, getRemaining, consumeVerify } = useGuestLimit();
   const resultSectionRef = useRef<HTMLDivElement>(null);
+  const autoTriggeredKeyRef = useRef<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<"url" | "text">("url");
   const [urlInput, setUrlInput] = useState(initialUrl);
@@ -162,6 +165,20 @@ function VerifyContent() {
         setFieldError("Вкажіть коректну URL-адресу новини для перевірки.");
         return;
       }
+      try {
+        const parsed = new URL(targetUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("invalid protocol");
+        }
+      } catch {
+        setFieldError("Введіть коректне посилання, що починається з http:// або https://");
+        return;
+      }
+
+      if (!user) {
+        const allowed = consumeVerify();
+        if (!allowed) return;
+      }
 
       setIsAnalyzing(true);
       setError(null);
@@ -192,7 +209,7 @@ function VerifyContent() {
         setIsAnalyzing(false);
       }
     },
-    [apiUrl, token, urlInput, fetchSavedReports]
+    [apiUrl, token, user, urlInput, consumeVerify, fetchSavedReports]
   );
 
   const handleVerifyText = async () => {
@@ -200,6 +217,11 @@ function VerifyContent() {
     if (cleanText.length < 20) {
       setFieldError("Введіть щонайменше одне повне речення (від 20 символів) для достовірного аналізу.");
       return;
+    }
+
+    if (!user) {
+      const allowed = consumeVerify();
+      if (!allowed) return;
     }
 
     setIsAnalyzing(true);
@@ -238,12 +260,17 @@ function VerifyContent() {
   }, [fetchSavedReports]);
 
   useEffect(() => {
+    if (authLoading || !guestReady) return;
+    const key = initialReportId ? `report:${initialReportId}` : initialUrl ? `url:${initialUrl}` : null;
+    if (!key || autoTriggeredKeyRef.current === key) return;
+    autoTriggeredKeyRef.current = key;
+
     if (initialReportId) {
-      loadReportById(initialReportId);
+      void loadReportById(initialReportId);
     } else if (initialUrl) {
-      handleVerifyUrl(initialUrl);
+      void handleVerifyUrl(initialUrl);
     }
-  }, [initialUrl, initialReportId, loadReportById, handleVerifyUrl]);
+  }, [initialUrl, initialReportId, authLoading, guestReady, loadReportById, handleVerifyUrl]);
 
   const filteredSavedReports = savedReports.filter((item) => {
     if (historyFilter === "all") return true;
@@ -264,6 +291,11 @@ function VerifyContent() {
         <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-[65ch]">
           Вставте посилання на статтю або скопіюйте повідомлення із соцмережі — гібридний ШІ-ансамбль оцінить достовірність, перевірить першоджерела та підсвітить маніпулятивні звороти.
         </p>
+        {!authLoading && !user && guestReady && (
+          <Badge variant="outline" className="tabular-nums">
+            Гостьовий доступ: залишилось {getRemaining("verify")} з {GUEST_LIMITS.verify} безкоштовних перевірок
+          </Badge>
+        )}
       </div>
 
       {/* Вкладки та форма перевірки */}

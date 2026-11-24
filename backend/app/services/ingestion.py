@@ -99,66 +99,28 @@ DEFAULT_FEEDS: List[Dict[str, Any]] = [
         "language": "ua",
         "country": "UA",
     },
-    # Міжнародні авторитетні англомовні ЗМІ (International Media)
+    # Українські спортивні медіа (категорія «Спорт»)
     {
-        "name": "BBC World News",
-        "domain": "bbc.com",
-        "homepage_url": "https://www.bbc.com/news/world",
-        "rss_url": "https://feeds.bbci.co.uk/news/world/rss.xml",
-        "reliability_rating": 96.0,
+        "name": "Sport.ua",
+        "domain": "sport.ua",
+        "homepage_url": "https://sport.ua",
+        "rss_url": "https://sport.ua/uk/rss/all",
+        "reliability_rating": 90.0,
         "is_whitelisted": True,
-        "language": "en",
-        "country": "GB",
+        "language": "ua",
+        "country": "UA",
+        "default_category": "Спорт",
     },
     {
-        "name": "The Guardian World",
-        "domain": "theguardian.com",
-        "homepage_url": "https://www.theguardian.com/world",
-        "rss_url": "https://www.theguardian.com/world/rss",
+        "name": "Чемпіон (УП Спорт)",
+        "domain": "champion.com.ua",
+        "homepage_url": "https://champion.com.ua",
+        "rss_url": "https://champion.com.ua/ukr/rss/",
         "reliability_rating": 93.0,
         "is_whitelisted": True,
-        "language": "en",
-        "country": "GB",
-    },
-    {
-        "name": "DW News (English)",
-        "domain": "dw.com",
-        "homepage_url": "https://www.dw.com/en",
-        "rss_url": "https://rss.dw.com/rdf/rss-en-all",
-        "reliability_rating": 94.0,
-        "is_whitelisted": True,
-        "language": "en",
-        "country": "DE",
-    },
-    {
-        "name": "Politico Europe",
-        "domain": "politico.eu",
-        "homepage_url": "https://www.politico.eu",
-        "rss_url": "https://www.politico.eu/feed/",
-        "reliability_rating": 91.0,
-        "is_whitelisted": True,
-        "language": "en",
-        "country": "EU",
-    },
-    {
-        "name": "NPR World News",
-        "domain": "npr.org",
-        "homepage_url": "https://www.npr.org/sections/world/",
-        "rss_url": "https://feeds.npr.org/1004/rss.xml",
-        "reliability_rating": 94.0,
-        "is_whitelisted": True,
-        "language": "en",
-        "country": "US",
-    },
-    {
-        "name": "CNN World News",
-        "domain": "cnn.com",
-        "homepage_url": "https://edition.cnn.com/world",
-        "rss_url": "http://rss.cnn.com/rss/edition_world.rss",
-        "reliability_rating": 89.0,
-        "is_whitelisted": True,
-        "language": "en",
-        "country": "US",
+        "language": "ua",
+        "country": "UA",
+        "default_category": "Спорт",
     },
 ]
 
@@ -205,6 +167,7 @@ FALLBACK_IMAGES: Dict[str, str] = {
     "Економіка": "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=800&q=80",
     "Суспільство": "https://images.unsplash.com/photo-1577495508048-b635879837f1?w=800&q=80",
     "Світ": "https://images.unsplash.com/photo-1526304640581-d334cdbbf45e?w=800&q=80",
+    "Спорт": "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&q=80",
     "Здоров'я": "https://images.unsplash.com/photo-1505751172876-fa1923c5c528?w=800&q=80",
     "Загальне": "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=800&q=80",
 }
@@ -232,8 +195,30 @@ def normalize_url(url: str) -> str:
     return cleaned_url
 
 
-def infer_category(title: str, tags: List[str], url: str) -> str:
-    """Визначення категорії новини на основі метаданих або ключових слів (UA + EN)."""
+def infer_category(
+    title: str,
+    tags: List[str],
+    url: str,
+    default_category: Optional[str] = None,
+) -> str:
+    """Визначення категорії новини українських медіа (включно з категоріями «Спорт» та «Світ»)."""
+    url_lower = (url or "").lower()
+    if default_category == "Спорт" or any(
+        marker in url_lower
+        for marker in (
+            "sport.ua",
+            "champion.com.ua",
+            "/sport/",
+            "/football/",
+            "/boxing/",
+            "/tennis/",
+            "/biathlon/",
+            "/basketball/",
+            "/futsal/",
+        )
+    ):
+        return "Спорт"
+
     text_to_check = f"{title} {' '.join(tags)} {url}".lower()
     tokens = set(re.findall(r"[\w']+", text_to_check))
 
@@ -241,6 +226,66 @@ def infer_category(title: str, tags: List[str], url: str) -> str:
         if any(stem in text_to_check for stem in stems):
             return True
         return bool(tokens.intersection(exact_words))
+
+    if has_any(
+        [
+            "футбол",
+            "баскетбол",
+            "волейбол",
+            "теніс",
+            "хокей",
+            "біатлон",
+            "боксер",
+            "олімпіад",
+            "олімпійськ",
+            "чемпіонат",
+            "ліга чемпіонів",
+            "лізі чемпіонів",
+            "ліга європи",
+            "лізі європи",
+            "динамо київ",
+            "шахтар",
+            "усик",
+            "світолін",
+            "костюк",
+            "ястремськ",
+            "трубін",
+            "мудрик",
+            "довбик",
+            "циганков",
+            "зінченко",
+            "голкіпер",
+            "бомбардир",
+            "футзал",
+            "формула-1",
+            "гран-прі",
+            "турнір",
+            "тренер збірної",
+            "збірна україни з",
+        ],
+        {
+            "спорт",
+            "спорту",
+            "спорті",
+            "спортсмен",
+            "спортсмени",
+            "бокс",
+            "боксу",
+            "матч",
+            "матчі",
+            "матчу",
+            "матчів",
+            "пенальті",
+            "нокаут",
+            "упл",
+            "апл",
+            "уєфа",
+            "фіфа",
+            "нба",
+            "нхл",
+        },
+    ):
+        return "Спорт"
 
     if has_any(
         ["війн", "воєн", "зсу", "фронт", "оборон", "президент", "парламент", "уряд", "рада", "вибор", "politics", "defense", "military", "government", "election", "senate", "congress", "minister"],
@@ -263,11 +308,52 @@ def infer_category(title: str, tags: List[str], url: str) -> str:
     ):
         return "Здоров'я"
     if has_any(
-        ["сша", "європа", "байден", "трамп", "китай", "німеччин", "польщ", "британі", "global", "diplomacy", "treaty", "foreign"],
-        {"world", "un"}
+        [
+            "сша",
+            "європ",
+            "євросоюз",
+            "єврокоміс",
+            "байден",
+            "трамп",
+            "китай",
+            "німеччин",
+            "польщ",
+            "британ",
+            "франці",
+            "ізраїл",
+            "іран",
+            "японі",
+            "канад",
+            "туреччин",
+            "угорщин",
+            "словаччин",
+            "італі",
+            "іспані",
+            "молдов",
+            "грузі",
+            "вашингтон",
+            "брюссел",
+            "лондон",
+            "берлін",
+            "париж",
+            "пекін",
+            "держдеп",
+            "пентагон",
+            "білого дому",
+            "саміт",
+            "дипломат",
+            "міжнародн",
+            "/world/",
+            "/svit/",
+            "global",
+            "diplomacy",
+            "treaty",
+            "foreign",
+        ],
+        {"світ", "світу", "світі", "єс", "нато", "оон", "g7", "g20", "world", "un"},
     ):
         return "Світ"
-    return "Суспільство"
+    return default_category or "Суспільство"
 
 
 def calculate_baseline_trust(title: str, source: Source) -> tuple[float, str]:
@@ -895,7 +981,12 @@ class NewsIngestionService:
                 continue
 
             tags = [t.term for t in getattr(entry, "tags", []) if hasattr(t, "term")]
-            category = infer_category(title, tags, article_url)
+            category = infer_category(
+                title,
+                tags,
+                article_url,
+                default_category=feed_config.get("default_category"),
+            )
             author = details.get("author") or getattr(entry, "author", None)
 
             # 3. Якщо після всіх кроків зображення відсутнє — елегантний категорійний Unsplash fallback
@@ -960,7 +1051,11 @@ class NewsIngestionService:
         try:
             custom_sources = (
                 await db.execute(
-                    select(Source).where(Source.rss_url.is_not(None), Source.is_blacklisted == False)
+                    select(Source).where(
+                        Source.rss_url.is_not(None),
+                        Source.is_blacklisted == False,
+                        Source.language == "ua",
+                    )
                 )
             ).scalars().all()
             for cs in custom_sources:

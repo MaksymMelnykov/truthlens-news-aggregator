@@ -80,10 +80,11 @@ async def startup_catchup_check():
 def start_scheduler():
     """Ініціалізація та запуск планувальника задач."""
     if not scheduler.running:
-        trigger = IntervalTrigger(minutes=settings.INGESTION_INTERVAL_MINUTES)
+        news_trigger = IntervalTrigger(minutes=settings.INGESTION_INTERVAL_MINUTES)
+        factcheck_trigger = IntervalTrigger(minutes=60)
         scheduler.add_job(
             scheduled_news_ingestion_job,
-            trigger=trigger,
+            trigger=news_trigger,
             id="periodic_news_ingestion",
             name="Періодичний збір новин",
             replace_existing=True,
@@ -92,7 +93,7 @@ def start_scheduler():
         )
         scheduler.add_job(
             scheduled_factcheck_sync_job,
-            trigger=trigger,
+            trigger=factcheck_trigger,
             id="periodic_factcheck_sync",
             name="Періодична синхронізація фактчеків",
             replace_existing=True,
@@ -101,7 +102,7 @@ def start_scheduler():
         )
         scheduler.start()
         logger.info(
-            f"Фоновий планувальник запущено: збір новин та синхронізація фактчеків кожні {settings.INGESTION_INTERVAL_MINUTES} хв."
+            f"Фоновий планувальник запущено: збір новин кожні {settings.INGESTION_INTERVAL_MINUTES} хв, синхронізація фактчеків кожні 60 хв."
         )
         try:
             loop = asyncio.get_running_loop()

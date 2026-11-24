@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Query, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
+from sqlalchemy.orm import defer
 from app.db.session import get_db
 from app.models.article import Article
 from app.models.source import Source
@@ -153,7 +154,7 @@ async def get_news_feed(
     """Отримати агреговану стрічку новин з фільтрацією за достовірністю, мовою, часом та категоріями."""
     await seed_initial_articles_if_empty(db)
 
-    query = select(Article)
+    query = select(Article).where(Article.language == "ua")
 
     # Персоналізація для авторизованого користувача
     if personalized and current_user and current_user.preferences:
@@ -220,8 +221,13 @@ async def get_news_feed(
     else:  # newest
         order_clauses = [Article.published_at.desc()]
 
-    # Пагінація
-    query = query.order_by(*order_clauses).offset((page - 1) * page_size).limit(page_size)
+    # Пагінація (не тягнемо важкий full_text із БД для списку карток)
+    query = (
+        query.options(defer(Article.full_text))
+        .order_by(*order_clauses)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     articles = (await db.execute(query)).scalars().all()
 
     bookmarked_ids = set()
@@ -306,9 +312,10 @@ async def get_article_detail(
         )
         is_bookmarked = b_res.scalar_one_or_none() is not None
 
-    # Схожі новини з тієї ж категорії
+    # Схожі новини з тієї ж категорії (без зайвого full_text)
     sim_res = await db.execute(
         select(Article)
+        .options(defer(Article.full_text))
         .where(Article.category == article.category, Article.id != article.id)
         .order_by(Article.published_at.desc())
         .limit(3)

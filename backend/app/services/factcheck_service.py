@@ -1,10 +1,11 @@
 import logging
 import re
+import time
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import httpx
 import feedparser
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -20,9 +21,54 @@ class FactCheckService:
     Працює виключно зі справжніми даними зі StopFake, VoxCheck та Google Fact Check Tools API.
     """
 
+    CLAIMS_CACHE_TTL_SECONDS = 900.0  # 15 хвилин кешування для зменшення навантаження на Neon
+
     def __init__(self):
         self.google_api_key = settings.GOOGLE_FACT_CHECK_API_KEY
         self.stopfake_rss_url = "https://www.stopfake.org/uk/feed/"
+        self._claims_cache: Dict[int, Tuple[float, List[FactCheckClaimRead]]] = {}
+
+    def invalidate_claims_cache(self) -> None:
+        """Скидає in-memory кеш фактчеків після додавання нових спростувань."""
+        self._claims_cache.clear()
+
+    async def _get_cached_claims(self, db: Optional[AsyncSession]) -> List[FactCheckClaimRead]:
+        """Повертає до 200 останніх фактчеків із 15-хвилинним in-memory кешем (прив'язаним до engine)."""
+        now = time.monotonic()
+
+        if db is not None:
+            cache_key = id(db.get_bind())
+            cached = self._claims_cache.get(cache_key)
+            if cached and (now - cached[0]) < self.CLAIMS_CACHE_TTL_SECONDS:
+                return cached[1]
+            try:
+                res = await db.execute(
+                    select(FactCheckClaim).order_by(FactCheckClaim.created_at.desc()).limit(200)
+                )
+                claims = [FactCheckClaimRead.model_validate(c) for c in res.scalars().all()]
+                self._claims_cache[cache_key] = (now, claims)
+                return claims
+            except Exception as e:
+                logger.warning(f"Помилка читання фактчеків з БД: {e}")
+                return cached[1] if cached else []
+
+        try:
+            from app.db.session import async_session_maker, engine
+
+            cache_key = id(engine)
+            cached = self._claims_cache.get(cache_key)
+            if cached and (now - cached[0]) < self.CLAIMS_CACHE_TTL_SECONDS:
+                return cached[1]
+            async with async_session_maker() as temp_db:
+                res = await temp_db.execute(
+                    select(FactCheckClaim).order_by(FactCheckClaim.created_at.desc()).limit(200)
+                )
+                claims = [FactCheckClaimRead.model_validate(c) for c in res.scalars().all()]
+                self._claims_cache[cache_key] = (now, claims)
+                return claims
+        except Exception as e:
+            logger.warning(f"Не вдалося відкрити тимчасову сесію БД для перевірки фактчеків: {e}")
+            return []
 
     async def seed_initial_claims_if_empty(self, db: AsyncSession) -> int:
         """Наповнення бази реальними розслідуваннями StopFake та VoxCheck, якщо вона порожня."""
@@ -43,6 +89,7 @@ class FactCheckService:
 
         if total_added > 0:
             await db.commit()
+            self.invalidate_claims_cache()
             logger.info(f"Успішно збережено {total_added} реальних фактчеків.")
 
         return total_added
@@ -236,22 +283,30 @@ class FactCheckService:
         all_fresh = fresh_claims + vox_claims
         added_count = 0
 
+        # Один легкий SQL-запит для дедуплікації замість десятків окремих SELECT у циклі
+        existing_rows = (
+            await db.execute(select(FactCheckClaim.review_url, FactCheckClaim.claim))
+        ).all()
+        existing_urls = {r[0] for r in existing_rows if r[0]}
+        existing_claims_lower = [str(r[1]).lower() for r in existing_rows if r[1]]
+
         for claim_data in all_fresh:
-            existing = await db.execute(
-                select(FactCheckClaim).where(
-                    or_(
-                        FactCheckClaim.review_url == claim_data.review_url,
-                        FactCheckClaim.claim.ilike(f"%{claim_data.claim[:40]}%")
-                    )
-                )
+            claim_prefix = claim_data.claim[:40].lower()
+            is_dup = (
+                (claim_data.review_url and claim_data.review_url in existing_urls)
+                or any(claim_prefix in ex_c for ex_c in existing_claims_lower)
             )
-            if not existing.scalar_one_or_none():
+            if not is_dup:
                 db_claim = FactCheckClaim(**claim_data.model_dump())
                 db.add(db_claim)
+                if claim_data.review_url:
+                    existing_urls.add(claim_data.review_url)
+                existing_claims_lower.append(claim_data.claim.lower())
                 added_count += 1
 
         if added_count > 0:
             await db.commit()
+            self.invalidate_claims_cache()
             try:
                 from app.services.embedding_service import embedding_service
 
@@ -298,22 +353,8 @@ class FactCheckService:
         # Якщо вхідний текст дуже короткий (пошуковий запит користувача без тіла статті)
         is_short_query = len(title_keywords) <= 5 and not (text and len(text.strip()) > 30)
 
-        # Отримуємо заяви з БД
-        all_claims: List[Any] = []
-        if db is not None:
-            try:
-                res = await db.execute(select(FactCheckClaim).order_by(FactCheckClaim.created_at.desc()).limit(200))
-                all_claims = list(res.scalars().all())
-            except Exception as e:
-                logger.warning(f"Помилка читання фактчеків з БД: {e}")
-        else:
-            try:
-                from app.db.session import async_session_maker
-                async with async_session_maker() as temp_db:
-                    res = await temp_db.execute(select(FactCheckClaim).order_by(FactCheckClaim.created_at.desc()).limit(200))
-                    all_claims = list(res.scalars().all())
-            except Exception as e:
-                logger.warning(f"Не вдалося відкрити тимчасову сесію БД для перевірки фактчеків: {e}")
+        # Отримуємо заяви з 15-хвилинного in-memory кешу (щоб не тягнути 200 рядків на кожну статтю)
+        all_claims = await self._get_cached_claims(db)
 
         if not all_claims:
             return FactCheckMatchResult(is_debunked=False, confidence=0.0)
@@ -321,7 +362,7 @@ class FactCheckService:
         # Розбиваємо текст на окремі речення, щоб перевіряти локальну концентрацію слів
         sentences = [s.strip() for s in re.split(r"[.!?\n]+", text or "") if len(s.strip()) > 20]
 
-        best_match: Optional[FactCheckClaim] = None
+        best_match: Optional[FactCheckClaimRead] = None
         highest_score: float = 0.0
 
         for fc in all_claims:
@@ -374,7 +415,7 @@ class FactCheckService:
             return FactCheckMatchResult(
                 is_debunked=True,
                 confidence=round(min(1.0, highest_score), 2),
-                matched_claim=FactCheckClaimRead.model_validate(best_match),
+                matched_claim=best_match,
                 explanation=f"Знайдено спростування від {best_match.fact_checker} ({best_match.rating}): {best_match.explanation or best_match.claim}",
             )
 

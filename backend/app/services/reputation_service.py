@@ -117,6 +117,24 @@ DOMAIN_REPUTATION_DATABASE: Dict[str, Dict[str, Any]] = {
         "is_whitelisted": True,
         "is_blacklisted": False,
     },
+    "champion.com.ua": {
+        "name": "Чемпіон (УП Спорт)",
+        "reliability_rating": 93.0,
+        "status": "whitelisted",
+        "imi_category": "Білий список (Спорт / УП)",
+        "description": "Спортивне видання холдингу «Українська правда». Оперативне висвітлення українського та світового спорту з дотриманням журналістських стандартів.",
+        "is_whitelisted": True,
+        "is_blacklisted": False,
+    },
+    "sport.ua": {
+        "name": "Sport.ua",
+        "reliability_rating": 90.0,
+        "status": "whitelisted",
+        "imi_category": "Перевірене спортивне медіа",
+        "description": "Провідний український спортивний портал. Висвітлення футболу, боксу, тенісу, біатлону та міжнародних турнірів українською мовою.",
+        "is_whitelisted": True,
+        "is_blacklisted": False,
+    },
     # Міжнародні еталонні ЗМІ
     "bbc.com": {
         "name": "BBC News",

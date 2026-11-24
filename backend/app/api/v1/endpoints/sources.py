@@ -57,7 +57,7 @@ async def get_sources(
     db: AsyncSession = Depends(get_db)
 ):
     """Отримати список джерел новин з фільтрацією за репутаційними списками."""
-    query = select(Source)
+    query = select(Source).where(Source.language == "ua")
     if whitelisted_only is True:
         query = query.where(Source.is_whitelisted == True)
     elif blacklisted_only is True:
@@ -88,8 +88,8 @@ async def create_source(
         domain=norm_domain,
         homepage_url=source_in.homepage_url.strip() if source_in.homepage_url else f"https://{norm_domain}",
         rss_url=source_in.rss_url.strip() if source_in.rss_url else None,
-        language=source_in.language,
-        country=source_in.country,
+        language="ua",
+        country="UA",
         reliability_rating=source_in.reliability_rating,
         is_whitelisted=source_in.is_whitelisted,
         is_blacklisted=source_in.is_blacklisted
@@ -125,8 +125,8 @@ async def update_source(
     source.domain = norm_domain
     source.homepage_url = source_in.homepage_url.strip() if source_in.homepage_url else f"https://{norm_domain}"
     source.rss_url = source_in.rss_url.strip() if source_in.rss_url else None
-    source.language = source_in.language
-    source.country = source_in.country
+    source.language = "ua"
+    source.country = "UA"
     source.reliability_rating = source_in.reliability_rating
     source.is_whitelisted = source_in.is_whitelisted
     source.is_blacklisted = source_in.is_blacklisted

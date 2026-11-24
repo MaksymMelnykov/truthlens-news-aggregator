@@ -30,7 +30,7 @@ export const Header: React.FC = () => {
   const navItems = isAdmin
     ? [
         {
-          href: "/analytics",
+          href: "/admin/analytics",
           label: "Аналітика та метрики",
           icon: PieChart,
         },
@@ -62,7 +62,7 @@ export const Header: React.FC = () => {
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background/85 backdrop-blur-md">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         <Link
-          href={isAdmin ? "/analytics" : "/"}
+          href={isAdmin ? "/admin/analytics" : "/"}
           className="group flex items-center gap-3 focus-visible:rounded-xl"
           aria-label="TruthLens — перехід на головну"
         >

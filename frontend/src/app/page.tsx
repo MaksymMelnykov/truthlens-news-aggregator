@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { NewsCard } from "@/components/NewsCard";
 import { Article, NewsFeedResponse, Source } from "@/types";
 import { useAuth } from "@/context/AuthContext";
+import { useGuestLimit } from "@/context/GuestLimitContext";
 import { PreferencesModal } from "@/components/PreferencesModal";
 import {
   Search,
@@ -21,7 +22,6 @@ import {
   ChevronsRight,
   Settings,
   Globe,
-  MapPin,
   Radio,
   RotateCcw,
 } from "lucide-react";
@@ -29,7 +29,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -47,9 +46,11 @@ import {
 const CATEGORIES = [
   "Всі",
   "Політика",
-  "Технології",
+  "Світ",
   "Економіка",
+  "Технології",
   "Суспільство",
+  "Спорт",
   "Здоров'я",
 ];
 
@@ -89,11 +90,12 @@ function getPaginationItems(current: number, total: number): (number | string)[]
 export default function HomePage() {
   const router = useRouter();
   const { user, apiUrl } = useAuth();
+  const { canUseVerify, openLimitModal } = useGuestLimit();
   const newsFeedRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (user?.role === "admin") {
-      router.replace("/analytics");
+      router.replace("/admin/analytics");
     }
   }, [user, router]);
 
@@ -101,7 +103,6 @@ export default function HomePage() {
   const [total, setTotal] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(12);
-  const [feedScope, setFeedScope] = useState<string>("all");
   const [isPrefsOpen, setIsPrefsOpen] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -115,8 +116,23 @@ export default function HomePage() {
   const [sortBy, setSortBy] = useState<string>("newest");
   const [onlyPersonalized, setOnlyPersonalized] = useState<boolean>(false);
   const [quickUrl, setQuickUrl] = useState<string>("");
-  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>("щойно");
+  const [liveTime, setLiveTime] = useState<string>("");
+
+  const formatCurrentClock = () => {
+    const now = new Date();
+    return `${now.getHours().toString().padStart(2, "0")}:${now
+      .getMinutes()
+      .toString()
+      .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
+  };
+
+  useEffect(() => {
+    setLiveTime(formatCurrentClock());
+    const clockTimer = setInterval(() => {
+      setLiveTime(formatCurrentClock());
+    }, 1000);
+    return () => clearInterval(clockTimer);
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const pageNumbers = getPaginationItems(currentPage, totalPages);
@@ -134,7 +150,7 @@ export default function HomePage() {
       const params = new URLSearchParams();
       params.append("page", pageToFetch.toString());
       params.append("page_size", sizeToFetch.toString());
-      if (feedScope !== "all") params.append("language", feedScope);
+      params.append("language", "ua");
       if (category !== "Всі") params.append("category", category);
       if (selectedSource !== "ALL") params.append("source", selectedSource);
       if (verdict !== "ALL") params.append("verdict", verdict);
@@ -163,13 +179,6 @@ export default function HomePage() {
       setArticles(data.items);
       setTotal(data.total);
       setFetchError(null);
-      const now = new Date();
-      setLastRefreshedAt(
-        `${now.getHours().toString().padStart(2, "0")}:${now
-          .getMinutes()
-          .toString()
-          .padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`
-      );
     } catch (e: unknown) {
       if (showLoading) {
         setFetchError(
@@ -201,7 +210,6 @@ export default function HomePage() {
   }, [
     currentPage,
     pageSize,
-    feedScope,
     category,
     selectedSource,
     verdict,
@@ -212,13 +220,23 @@ export default function HomePage() {
   ]);
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    let lastAutoFetchAt = Date.now();
+    const AUTO_REFRESH_MS = 180000; // 3 хв — зменшує зайве навантаження на БД
+    const FOCUS_MIN_INTERVAL_MS = 60000; // не частіше ніж раз на 60 сек при поверненні на вкладку
+
     const timer = setInterval(() => {
-      fetchNews(false, currentPage, pageSize);
-    }, 25000);
+      if (document.visibilityState === "visible") {
+        lastAutoFetchAt = Date.now();
+        fetchNews(false, currentPage, pageSize);
+      }
+    }, AUTO_REFRESH_MS);
 
     const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === "visible") {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastAutoFetchAt >= FOCUS_MIN_INTERVAL_MS
+      ) {
+        lastAutoFetchAt = Date.now();
         fetchNews(false, currentPage, pageSize);
       }
     };
@@ -232,10 +250,8 @@ export default function HomePage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    autoRefresh,
     currentPage,
     pageSize,
-    feedScope,
     category,
     selectedSource,
     verdict,
@@ -254,7 +270,6 @@ export default function HomePage() {
   };
 
   const resetAllFilters = () => {
-    setFeedScope("all");
     setCategory("Всі");
     setSelectedSource("ALL");
     setVerdict("ALL");
@@ -322,6 +337,10 @@ export default function HomePage() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (quickUrl.trim()) {
+                    if (!user && !canUseVerify()) {
+                      openLimitModal("verify");
+                      return;
+                    }
                     router.push(
                       `/verify?url=${encodeURIComponent(quickUrl.trim())}`
                     );
@@ -351,29 +370,32 @@ export default function HomePage() {
       {/* Панель фільтрації та керування потоком */}
       <Card className="p-4 sm:p-6 flex flex-col gap-4">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-border">
-          <Tabs
-            value={feedScope}
-            onValueChange={(val) => {
-              setFeedScope(val);
-              setCurrentPage(1);
-            }}
+          {/* Рубрики */}
+          <div
+            role="group"
+            aria-label="Фільтр за рубриками"
+            className="flex flex-wrap items-center gap-2"
           >
-            <TabsList aria-label="Регіональний діапазон медіа">
-              <TabsTrigger value="all">Усі видання</TabsTrigger>
-              <TabsTrigger value="ua">
-                <MapPin className="size-3.5" />
-                <span>Українські ЗМІ</span>
-              </TabsTrigger>
-              <TabsTrigger value="en">
-                <Globe className="size-3.5" />
-                <span>Міжнародні ЗМІ</span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+            {CATEGORIES.map((cat) => (
+              <Button
+                key={cat}
+                type="button"
+                variant={category === cat ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  setCategory(cat);
+                  setCurrentPage(1);
+                }}
+                aria-pressed={category === cat}
+              >
+                {cat}
+              </Button>
+            ))}
+          </div>
 
           <form
             onSubmit={handleSearchSubmit}
-            className="flex items-center gap-2 w-full lg:w-80"
+            className="flex items-center gap-2 w-full lg:w-80 shrink-0"
           >
             <Input
               type="search"
@@ -391,29 +413,6 @@ export default function HomePage() {
               <Search className="size-4" />
             </Button>
           </form>
-        </div>
-
-        {/* Рубрики */}
-        <div
-          role="group"
-          aria-label="Фільтр за рубриками"
-          className="flex items-center gap-2 overflow-x-auto pb-1"
-        >
-          {CATEGORIES.map((cat) => (
-            <Button
-              key={cat}
-              type="button"
-              variant={category === cat ? "default" : "outline"}
-              size="sm"
-              onClick={() => {
-                setCategory(cat);
-                setCurrentPage(1);
-              }}
-              aria-pressed={category === cat}
-            >
-              {cat}
-            </Button>
-          ))}
         </div>
 
         {/* Додаткові фільтри: Достовірність, Час, Джерело, Сортування */}
@@ -508,18 +507,6 @@ export default function HomePage() {
                   onValueChange={(val) => {
                     setSelectedSource(val);
                     setCurrentPage(1);
-                    if (val !== "ALL") {
-                      const picked = availableSources.find(
-                        (s) => s.domain === val
-                      );
-                      if (
-                        picked &&
-                        feedScope !== "all" &&
-                        picked.language !== feedScope
-                      ) {
-                        setFeedScope("all");
-                      }
-                    }
                   }}
                 >
                   <SelectTrigger
@@ -535,7 +522,7 @@ export default function HomePage() {
                       </SelectItem>
                       {availableSources.map((src) => (
                         <SelectItem key={src.id} value={src.domain}>
-                          {src.name} ({src.language === "en" ? "EN" : "UA"})
+                          {src.name}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -546,21 +533,19 @@ export default function HomePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant={autoRefresh ? "secondary" : "outline"}
-              size="sm"
-              onClick={() => setAutoRefresh(!autoRefresh)}
-              aria-pressed={autoRefresh}
-              title="Автоматичне оновлення потоку кожні 25 секунд"
+            <div
+              role="status"
+              aria-label="Стрічка оновлюється автоматично в реальному часі"
+              className="inline-flex items-center gap-2 h-9 px-3.5 rounded-xl border border-border/80 bg-secondary/70 text-xs font-semibold text-foreground select-none"
             >
-              <Radio className="size-3.5 text-verified" />
-              <span className="tabular-nums">
-                {autoRefresh
-                  ? `Наживо (${lastRefreshedAt})`
-                  : "Автооновлення вимкнено"}
-              </span>
-            </Button>
+              <Radio className="size-3.5 text-verified animate-pulse" />
+              <span>Наживо</span>
+              {liveTime && (
+                <span className="font-mono tabular-nums text-muted-foreground">
+                  ({liveTime})
+                </span>
+              )}
+            </div>
 
             {user && (
               <div className="flex items-center gap-1.5">
@@ -632,7 +617,7 @@ export default function HomePage() {
             />
           ) : (
             <motion.div
-              key={`feed-page-${currentPage}-${feedScope}-${category}-${verdict}`}
+              key={`feed-page-${currentPage}-${category}-${verdict}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}

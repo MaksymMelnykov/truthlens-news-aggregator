@@ -12,10 +12,9 @@ import {
   ExternalLink,
   Fingerprint,
   FileText,
-  Globe,
-  MapPin,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { useGuestLimit } from "@/context/GuestLimitContext";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +31,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   onBookmarkChange,
 }) => {
   const { user, token, apiUrl } = useAuth();
+  const { consumeXaiModal, canOpenArticleDetail, openLimitModal } = useGuestLimit();
   const [isBookmarked, setIsBookmarked] = useState<boolean>(
     Boolean(initialBookmarked || article.is_bookmarked)
   );
@@ -92,6 +92,12 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     e.stopPropagation();
 
     const nextState = !showXai;
+    if (nextState && !user) {
+      const allowed = consumeXaiModal(article.id);
+      if (!allowed) {
+        return;
+      }
+    }
     setShowXai(nextState);
 
     if (nextState && !xaiDetail && !loadingXai) {
@@ -128,8 +134,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({
     }
   );
 
-  const isInternational = article.language === "en";
-
   return (
     <motion.article
       layout
@@ -155,15 +159,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               <div className="absolute inset-0 bg-gradient-to-t from-background/85 via-transparent to-transparent pointer-events-none" />
 
               <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                <Badge variant={isInternational ? "default" : "secondary"}>
-                  {isInternational ? (
-                    <Globe className="size-3.5" />
-                  ) : (
-                    <MapPin className="size-3.5" />
-                  )}
-                  <span>{isInternational ? "Світ (EN)" : "Україна"}</span>
-                </Badge>
-                <Badge variant="outline">{article.category}</Badge>
+                <Badge variant="secondary">{article.category}</Badge>
               </div>
 
               <Button
@@ -194,15 +190,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
           ) : (
             <CardHeader className="flex-row items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Badge variant={isInternational ? "default" : "secondary"}>
-                  {isInternational ? (
-                    <Globe className="size-3.5" />
-                  ) : (
-                    <MapPin className="size-3.5" />
-                  )}
-                  <span>{isInternational ? "Світ (EN)" : "Україна"}</span>
-                </Badge>
-                <Badge variant="outline">{article.category}</Badge>
+                <Badge variant="secondary">{article.category}</Badge>
               </div>
 
               <Button
@@ -275,6 +263,12 @@ export const NewsCard: React.FC<NewsCardProps> = ({
               <Link
                 href={`/news/${article.id}`}
                 aria-label={`Повний розбір статті: ${article.title}`}
+                onClick={(e) => {
+                  if (!user && !canOpenArticleDetail(article.id)) {
+                    e.preventDefault();
+                    openLimitModal("xai_details");
+                  }
+                }}
               >
                 <FileText className="size-4 text-accent" />
                 <span>Деталі</span>

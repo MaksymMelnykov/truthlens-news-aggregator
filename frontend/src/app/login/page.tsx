@@ -53,7 +53,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
       if (email.trim().toLowerCase() === "admin@truthlens.ua") {
-        router.push("/analytics");
+        router.push("/admin/analytics");
       } else {
         router.push("/");
       }

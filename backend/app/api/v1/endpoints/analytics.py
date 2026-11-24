@@ -38,7 +38,7 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     Отримати зведені аналітичні метрики дезінформації в реальному часі з хмарної БД Neon.tech
     для інтерактивного адміністративного дашборду `/analytics`.
     """
-    # 1. Загальна статистика статей за рівнями довіри
+    # 1. Загальна статистика статей за рівнями довіри (українські ЗМІ)
     total_q = await db.execute(
         select(
             func.count(Article.id),
@@ -46,7 +46,7 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
             func.sum(case((Article.trust_score >= 80.0, 1), else_=0)),
             func.sum(case(((Article.trust_score >= 50.0) & (Article.trust_score < 80.0), 1), else_=0)),
             func.sum(case((Article.trust_score < 50.0, 1), else_=0)),
-        )
+        ).where(Article.language == "ua")
     )
     row = total_q.one()
     total_news = int(row[0] or 0)
@@ -74,6 +74,7 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
             func.sum(case(((Article.trust_score >= 50.0) & (Article.trust_score < 80.0), 1), else_=0)).label("caut_cnt"),
             func.sum(case((Article.trust_score < 50.0, 1), else_=0)).label("risk_cnt"),
         )
+        .where(Article.language == "ua")
         .group_by(Article.category)
         .order_by(func.count(Article.id).desc())
     )
@@ -90,9 +91,9 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
             )
         )
 
-    # 4. Рейтинг джерел ЗМІ (усі зареєстровані Source + агрегація з Article)
+    # 4. Рейтинг джерел ЗМІ (українські зареєстровані Source + агрегація з Article)
     sources_map: Dict[str, Source] = {}
-    src_rows = (await db.execute(select(Source))).scalars().all()
+    src_rows = (await db.execute(select(Source).where(Source.language == "ua"))).scalars().all()
     for s in src_rows:
         dom_key = reputation_service.normalize_domain(s.domain) or s.domain.lower().strip()
         sources_map[dom_key] = s
@@ -104,7 +105,9 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
             func.max(Article.language).label("lang"),
             func.count(Article.id).label("cnt"),
             func.avg(Article.trust_score).label("avg_trust"),
-        ).group_by(func.lower(Article.domain))
+        )
+        .where(Article.language == "ua")
+        .group_by(func.lower(Article.domain))
     )
 
     art_stats: Dict[str, Dict[str, Any]] = {}
@@ -168,7 +171,7 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     recent_arts = (
         await db.execute(
             select(Article.published_at, Article.trust_score)
-            .where(Article.published_at.is_not(None))
+            .where(Article.language == "ua", Article.published_at.is_not(None))
             .order_by(Article.published_at.desc())
             .limit(1500)
         )
@@ -232,7 +235,11 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     users_count = int((await db.execute(select(func.count(User.id)))).scalar() or 0)
     try:
         embedded_arts = int(
-            (await db.execute(text("SELECT COUNT(*) FROM articles WHERE embedding IS NOT NULL"))).scalar()
+            (
+                await db.execute(
+                    text("SELECT COUNT(*) FROM articles WHERE language = 'ua' AND embedding IS NOT NULL")
+                )
+            ).scalar()
             or total_news
         )
         embedded_fcs = int(

@@ -4,6 +4,8 @@ import React from "react";
 import Link from "next/link";
 import { TrustScoreBreakdown } from "@/types";
 import { TrustBadge } from "./TrustBadge";
+import { useAuth } from "@/context/AuthContext";
+import { useGuestLimit } from "@/context/GuestLimitContext";
 import {
   Fingerprint,
   AlertTriangle,
@@ -53,6 +55,8 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
   data,
   error = null,
 }) => {
+  const { user } = useAuth();
+  const { canOpenArticleDetail, openLimitModal } = useGuestLimit();
   const tb = data?.trust_breakdown;
 
   return (
@@ -91,7 +95,18 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
               )}
               {data?.article_id && (
                 <Button asChild variant="outline" size="sm" className="h-7 px-2.5 text-xs">
-                  <Link href={`/news/${data.article_id}`} onClick={onClose}>
+                  <Link
+                    href={`/news/${data.article_id}`}
+                    onClick={(e) => {
+                      if (!user && !canOpenArticleDetail(data.article_id!)) {
+                        e.preventDefault();
+                        onClose();
+                        openLimitModal("xai_details");
+                        return;
+                      }
+                      onClose();
+                    }}
+                  >
                     <FileText className="size-3.5 text-accent" />
                     <span>Повний текст і підсвітка ШІ</span>
                   </Link>

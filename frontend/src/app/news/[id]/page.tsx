@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
+import { useGuestLimit } from "@/context/GuestLimitContext";
 import { ArticleDetail, XAITokenContribution } from "@/types";
 import { TrustBadge } from "@/components/TrustBadge";
 import { NewsCard } from "@/components/NewsCard";
@@ -38,10 +39,10 @@ import {
   PieChart,
   Search,
   Globe,
-  Flag,
   Clock,
   Eye,
   FileText,
+  Lock,
 } from "lucide-react";
 
 type HighlightMode = "all" | "heatmap" | "fake" | "real" | "none";
@@ -123,15 +124,18 @@ function ArticleDetailSkeleton() {
 export default function ArticleDetailPage() {
   const params = useParams();
   const articleId = params?.id as string;
-  const { user, token, apiUrl } = useAuth();
+  const { user, token, isLoading: authLoading, apiUrl } = useAuth();
+  const { isReady: guestReady, consumeArticleDetail, openLimitModal } = useGuestLimit();
 
   const [article, setArticle] = useState<ArticleDetail | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [guestLimitBlocked, setGuestLimitBlocked] = useState<boolean>(false);
   const [isBookmarked, setIsBookmarked] = useState<boolean>(false);
   const [updatingBookmark, setUpdatingBookmark] = useState<boolean>(false);
   const [highlightMode, setHighlightMode] = useState<HighlightMode>("all");
   const [imgFailed, setImgFailed] = useState<boolean>(false);
+  const checkedArticleIdRef = useRef<string | null>(null);
 
   const fetchDetail = useCallback(async () => {
     if (!articleId) return;
@@ -159,8 +163,28 @@ export default function ArticleDetailPage() {
   }, [articleId, apiUrl, token]);
 
   useEffect(() => {
-    fetchDetail();
-  }, [fetchDetail]);
+    if (!articleId || authLoading || !guestReady) return;
+
+    if (user) {
+      setGuestLimitBlocked(false);
+      void fetchDetail();
+      return;
+    }
+
+    if (checkedArticleIdRef.current !== articleId) {
+      checkedArticleIdRef.current = articleId;
+      const numericId = Number(articleId);
+      const allowed = consumeArticleDetail(Number.isFinite(numericId) ? numericId : -1);
+      if (!allowed) {
+        setGuestLimitBlocked(true);
+        setLoading(false);
+        return;
+      }
+    }
+
+    setGuestLimitBlocked(false);
+    void fetchDetail();
+  }, [articleId, authLoading, guestReady, user, consumeArticleDetail, fetchDetail]);
 
   const toggleBookmark = async () => {
     if (!article) return;
@@ -326,6 +350,29 @@ export default function ArticleDetailPage() {
     });
   };
 
+  if (guestLimitBlocked && !user) {
+    return (
+      <div className="max-w-xl mx-auto px-4 py-16">
+        <EmptyState
+          icon={Lock}
+          title="Вичерпано гостьовий ліміт переглядів (2 з 2)"
+          description="Увійдіть або створіть безкоштовний акаунт TruthLens, щоб без обмежень переглядати повні XAI-розбори та деталі всіх новин."
+          actionLabel="Увійти в акаунт"
+          actionHref="/login"
+          secondaryActionLabel="Повернутися до стрічки"
+          onSecondaryAction={() => {
+            window.location.href = "/";
+          }}
+        />
+        <div className="mt-4 text-center">
+          <Button variant="ghost" size="sm" onClick={() => openLimitModal("xai_details")}>
+            Детальніше про умови доступу
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return <ArticleDetailSkeleton />;
   }
@@ -408,20 +455,7 @@ export default function ArticleDetailPage() {
           <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
             <div className="flex flex-col gap-3 max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="default">
-                  {article.language === "en" ? (
-                    <>
-                      <Globe className="size-3.5" />
-                      Світ (EN)
-                    </>
-                  ) : (
-                    <>
-                      <Flag className="size-3.5" />
-                      Україна (UA)
-                    </>
-                  )}
-                </Badge>
-                <Badge variant="secondary">{article.category}</Badge>
+                <Badge variant="default">{article.category}</Badge>
                 <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Globe className="size-3.5 text-muted-foreground" />
                   <strong className="text-foreground">{article.source_name}</strong> (
