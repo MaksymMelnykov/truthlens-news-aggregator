@@ -231,10 +231,13 @@ export default function AnalyticsPage() {
         if (mlRes.ok) {
           const mlData: ModelMetricsResponse = await mlRes.json();
           setMlMetrics(mlData);
-          if (mlData?.models) {
-            const keys = Object.keys(mlData.models);
-            if (keys.length > 0 && !mlData.models[selectedModelName]) {
-              setSelectedModelName(keys[keys.length - 1]);
+          const modelsMap = mlData?.models;
+          if (modelsMap) {
+            const keys = Object.keys(modelsMap);
+            if (keys.length > 0) {
+              setSelectedModelName((prev) =>
+                modelsMap[prev] ? prev : keys[keys.length - 1]
+              );
             }
           }
         }
@@ -251,16 +254,18 @@ export default function AnalyticsPage() {
         setLoading(false);
       }
     },
-    [apiUrl, selectedModelName]
+    [apiUrl]
   );
 
+  const isAdmin = user?.role === "admin";
+
   useEffect(() => {
-    if (user?.role === "admin") {
+    if (isAdmin) {
       fetchAnalytics(false);
     } else if (!authLoading) {
       setLoading(false);
     }
-  }, [user, authLoading, fetchAnalytics]);
+  }, [isAdmin, authLoading, fetchAnalytics]);
 
   if (!authLoading && (!user || user.role !== "admin")) {
     return (
@@ -1183,7 +1188,7 @@ export default function AnalyticsPage() {
                             {(
                               mlMetrics?.xai_discriminative_features?.fake_indicators ?? []
                             )
-                              .slice(0, 10)
+                              .slice(0, 20)
                               .map((feat, idx) => (
                                 <Badge
                                   key={`fake-feat-${idx}`}
@@ -1207,7 +1212,7 @@ export default function AnalyticsPage() {
                             {(
                               mlMetrics?.xai_discriminative_features?.real_indicators ?? []
                             )
-                              .slice(0, 10)
+                              .slice(0, 20)
                               .map((feat, idx) => (
                                 <Badge
                                   key={`real-feat-${idx}`}

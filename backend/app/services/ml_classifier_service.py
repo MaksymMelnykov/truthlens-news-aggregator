@@ -22,9 +22,13 @@ from pydantic import BaseModel
 
 from app.services.stylometry_service import (
     CLICKBAIT_PHRASES,
+    DIRECT_ATTRIBUTION_PATTERNS,
     EMOTIONAL_MANIPULATION_PHRASES,
+    FACTUAL_QUANTITATIVE_PATTERNS,
+    OFFICIAL_ROLE_PATTERNS,
     PROPAGANDA_MARKERS,
     REPORTING_VERBS_PATTERN,
+    SENSATIONAL_EMOTIONAL_WORDS,
     VAGUE_ATTRIBUTION_PHRASES,
     VERIFIED_INSTITUTION_PATTERNS,
 )
@@ -53,6 +57,9 @@ class TokenContribution(BaseModel):
     token: str
     weight: float
     direction: str  # "fake_indicator" або "real_indicator"
+    category: str = "factual_evidence"  # "institution" | "official_role" | "document_attribution" | "quantitative_fact" | "manipulation" | "vague_attribution" | "emotional_tone"
+    label: str = "Фактична опора"
+    reason: str = ""
 
 
 class MLPredictionResult(BaseModel):
@@ -74,6 +81,7 @@ class MLClassifierService:
 
     def __init__(self) -> None:
         self._bundle: Optional[Dict[str, Any]] = None
+        self._bundle_mtime: Optional[float] = None
         self._ukr_roberta_pipeline: Optional[Any] = None
         self._xlm_roberta_pipeline: Optional[Any] = None
         self._is_loaded: bool = False
@@ -105,6 +113,16 @@ class MLClassifierService:
 
     def _ensure_loaded(self) -> None:
         if self._is_loaded:
+            # Якщо .joblib-артефакт оновився на диску після перенавчання, автоматично підхоплюємо нові ваги
+            if MODEL_ARTIFACT_PATH.exists():
+                try:
+                    cur_mtime = MODEL_ARTIFACT_PATH.stat().st_mtime
+                    if self._bundle_mtime is None or cur_mtime != self._bundle_mtime:
+                        self._bundle = joblib.load(MODEL_ARTIFACT_PATH)
+                        self._bundle_mtime = cur_mtime
+                        logger.info("Оновлено ML-артефакт із диска після перенавчання: %s", MODEL_ARTIFACT_PATH)
+                except Exception as e:
+                    logger.warning("Не вдалося перезавантажити оновлений ML-артефакт: %s", e)
             return
 
         # 1. Перевірка наявності розпакованих ваг обох трансформерів із Google Colab
@@ -127,6 +145,7 @@ class MLClassifierService:
         if MODEL_ARTIFACT_PATH.exists():
             try:
                 self._bundle = joblib.load(MODEL_ARTIFACT_PATH)
+                self._bundle_mtime = MODEL_ARTIFACT_PATH.stat().st_mtime
                 logger.info("Успішно завантажено ML-артефакт: %s", MODEL_ARTIFACT_PATH)
             except Exception as e:
                 logger.error("Помилка читання joblib-артефакту: %s", e)
@@ -154,99 +173,256 @@ class MLClassifierService:
         latin_count = sum(1 for ch in text if ("a" <= ch.lower() <= "z"))
         return cyrillic_count >= latin_count
 
-    def _extract_xai_tokens(self, combined_text: str, top_k: int = 8) -> List[TokenContribution]:
+    def _extract_xai_tokens(
+        self,
+        combined_text: str,
+        top_k: int = 10,
+        predicted_fake_prob: float = 0.2,
+    ) -> List[TokenContribution]:
         """
-        Визначає дискримінативні слова та біграми у вхідному тексті з урахуванням:
-        1) Ваг лінійного пояснювача (TF-IDF + LogisticRegression);
-        2) Контекстної уваги речення (Contextual Attention Modulation): перевіряє, в якому саме
-           реченні стоїть слово — поруч із офіційними відомствами/цитатами чи емоційними тригерами.
+        Доказово-семантичний витяг XAI-маркерів (Evidence-Based XAI):
+        Повністю виключає службові/стоп-слова («його», «через», «про це», «також», «листопада»)
+        та випадкові тематичні слова з TF-IDF.
+        Виділяє лише змістовні, перевірювані опори та реальні маркери ризику з точним поясненням:
+        - Ризики: клікбейт, пропагандистські штампи, розмита/анонімна атрибуція, сенсаційна лексика.
+        - Фактичні опори: офіційні інституції/медіа, документальна атрибуція, посадовці, конкретні цифри з одиницями.
         """
-        if not self._bundle or "explainer_pipeline" not in self._bundle:
+        if not combined_text or not combined_text.strip():
             return []
 
         try:
-            explainer_pipe = self._bundle["explainer_pipeline"]
-            tfidf = explainer_pipe.named_steps["tfidf"]
-            clf = explainer_pipe.named_steps["clf"]
+            risk_tokens: List[TokenContribution] = []
+            factual_tokens: List[TokenContribution] = []
+            seen_lower: set[str] = set()
 
-            vec = tfidf.transform([combined_text])
-            nonzero_indices = vec.nonzero()[1]
-            if len(nonzero_indices) == 0:
-                return []
+            def _is_overlapping(candidate: str) -> bool:
+                low = candidate.lower().strip()
+                if not low or low in seen_lower:
+                    return True
+                for existing in seen_lower:
+                    if low in existing or existing in low:
+                        return True
+                return False
 
-            feature_names = tfidf.get_feature_names_out()
-            coefs = clf.coef_[0]
-
-            # Розбиваємо текст на речення для контекстної модуляції ваги кожного токена
-            raw_sentences = [
-                s.strip()
-                for s in re.split(r"(?<=[.!?…])\s+", combined_text)
-                if len(s.strip()) >= 12
-            ] or [combined_text]
-
-            contributions: List[TokenContribution] = []
-            seen_tokens = set()
-
-            for idx in nonzero_indices:
-                token_str = str(feature_names[idx]).strip()
-                if len(token_str) < 4 or token_str.isdigit():
-                    continue
-                tfidf_val = float(vec[0, idx])
-                base_impact = float(coefs[idx]) * tfidf_val
-
-                # Контекстна модуляція (Contextual Saliency): знаходимо речення з цим токеном
-                matching_sents = [s for s in raw_sentences if token_str.lower() in s.lower()]
-                context_sent = matching_sents[0] if matching_sents else combined_text
-
-                has_verified_inst = any(
-                    re.search(pat, context_sent, flags=re.IGNORECASE)
-                    for pat, _ in VERIFIED_INSTITUTION_PATTERNS
-                )
-                has_reporting_verb = bool(REPORTING_VERBS_PATTERN.search(context_sent))
-                has_manipulative_ctx = any(
-                    re.search(pat, context_sent, flags=re.IGNORECASE)
-                    for pat, *_ in (CLICKBAIT_PHRASES + PROPAGANDA_MARKERS + EMOTIONAL_MANIPULATION_PHRASES + VAGUE_ATTRIBUTION_PHRASES)
-                )
-
-                impact = base_impact
-                # Якщо слово статистично мало позитивний (фейковий) коефіцієнт, але вживається
-                # у реченні з офіційним відомством та звітною дією без маніпуляцій — послаблюємо хибний тригер
-                if impact > 0 and has_verified_inst and has_reporting_verb and not has_manipulative_ctx:
-                    impact *= 0.45
-                # Якщо слово стоїть у реченні з клікбейтом/анонімним вкидом — підсилюємо вагу ризику
-                elif impact > 0 and has_manipulative_ctx:
-                    impact *= 1.25
-                # Якщо слово підкріплює факт у реченні з офіційною установою — підсилюємо вагу достовірності
-                elif impact < 0 and (has_verified_inst or has_reporting_verb):
-                    impact *= 1.20
-
-                if abs(impact) >= 0.065:
-                    seen_tokens.add(token_str.lower())
-                    contributions.append(
-                        TokenContribution(
-                            token=token_str,
-                            weight=round(impact, 4),
-                            direction="fake_indicator" if impact > 0 else "real_indicator",
-                        )
+            def _add_token(
+                target_list: List[TokenContribution],
+                surface: str,
+                weight: float,
+                direction: str,
+                category: str,
+                label: str,
+                reason: str,
+            ) -> bool:
+                clean = re.sub(r"\s+", " ", surface).strip(" ,.;:!?\"'«»()[]")
+                if len(clean) < 2 or _is_overlapping(clean):
+                    return False
+                seen_lower.add(clean.lower())
+                target_list.append(
+                    TokenContribution(
+                        token=clean,
+                        weight=round(weight, 4),
+                        direction=direction,
+                        category=category,
+                        label=label,
+                        reason=reason,
                     )
+                )
+                return True
 
-            # Додатково додаємо контекстно значущі маркери з тексту, якщо їх не захопив базовий межовий фільтр
-            for pat, label in VERIFIED_INSTITUTION_PATTERNS:
+            # 1. Критичні маркери ризику: пропаганда, клікбейт, емоційна маніпуляція
+            for pat, _lbl, cat, sev, desc in PROPAGANDA_MARKERS + CLICKBAIT_PHRASES + EMOTIONAL_MANIPULATION_PHRASES:
                 m = re.search(pat, combined_text, flags=re.IGNORECASE)
                 if m:
-                    found_word = m.group(0).strip()
-                    if len(found_word) >= 3 and found_word.lower() not in seen_tokens:
-                        seen_tokens.add(found_word.lower())
-                        contributions.append(
-                            TokenContribution(
-                                token=found_word,
-                                weight=-0.24,
-                                direction="real_indicator",
-                            )
-                        )
+                    w = 0.42 if cat == "propaganda" else (0.34 if sev == "high" else 0.26)
+                    badge_lbl = (
+                        "Пропагандистський штамп"
+                        if cat == "propaganda"
+                        else ("Клікбейт-тригер" if cat == "clickbait" else "Емоційна маніпуляція")
+                    )
+                    _add_token(
+                        risk_tokens,
+                        m.group(0),
+                        w,
+                        "fake_indicator",
+                        "manipulation",
+                        badge_lbl,
+                        desc,
+                    )
 
-            contributions.sort(key=lambda x: abs(x.weight), reverse=True)
-            return contributions[:top_k]
+            # 2. Розмита або анонімна атрибуція (чутки, «інсайдери», «в кулуарах»)
+            for pat, _lbl, _cat, sev, desc in VAGUE_ATTRIBUTION_PHRASES:
+                m = re.search(pat, combined_text, flags=re.IGNORECASE)
+                if m:
+                    w = 0.30 if sev == "high" else 0.24
+                    _add_token(
+                        risk_tokens,
+                        m.group(0),
+                        w,
+                        "fake_indicator",
+                        "vague_attribution",
+                        "Розмита атрибуція",
+                        desc,
+                    )
+
+            # 3. Оціночна / сенсаційна лексика (м'який сигнал емоційності)
+            for pat, badge_lbl, desc in SENSATIONAL_EMOTIONAL_WORDS:
+                m = re.search(pat, combined_text, flags=re.IGNORECASE)
+                if m:
+                    _add_token(
+                        risk_tokens,
+                        m.group(0),
+                        0.18,
+                        "fake_indicator",
+                        "emotional_tone",
+                        badge_lbl,
+                        desc,
+                    )
+
+            # 4. Документальна та пряма атрибуція (указ №..., за даними ..., за словами ...)
+            for pat, badge_lbl, desc in DIRECT_ATTRIBUTION_PATTERNS:
+                for m in re.finditer(pat, combined_text, flags=re.IGNORECASE):
+                    if len(factual_tokens) >= 4:
+                        break
+                    _add_token(
+                        factual_tokens,
+                        m.group(0),
+                        -0.28,
+                        "real_indicator",
+                        "document_attribution",
+                        badge_lbl,
+                        desc,
+                    )
+
+            # 5. Офіційні інституції, відомства, федерації та авторитетні медіа
+            for pat, inst_label in VERIFIED_INSTITUTION_PATTERNS:
+                m = re.search(pat, combined_text, flags=re.IGNORECASE)
+                if m:
+                    _add_token(
+                        factual_tokens,
+                        m.group(0),
+                        -0.30,
+                        "real_indicator",
+                        "institution",
+                        "Офіційне джерело",
+                        f"Посилання на верифіковану установу або авторитетне джерело ({inst_label})",
+                    )
+
+            # 6. Офіційні посадовці (міністр, головнокомандувач, гендиректор, речник тощо)
+            for pat, role_label in OFFICIAL_ROLE_PATTERNS:
+                m = re.search(pat, combined_text, flags=re.IGNORECASE)
+                if m:
+                    _add_token(
+                        factual_tokens,
+                        m.group(0),
+                        -0.22,
+                        "real_indicator",
+                        "official_role",
+                        "Посадова особа",
+                        f"Атрибуція до офіційної посадової особи ({role_label})",
+                    )
+
+            # 7. Верифіковані кількісні показники з одиницями (макс. 3, без голих дат і місяців)
+            quant_added = 0
+            for pat, badge_lbl, desc in FACTUAL_QUANTITATIVE_PATTERNS:
+                if quant_added >= 3:
+                    break
+                for m in re.finditer(pat, combined_text, flags=re.IGNORECASE):
+                    if quant_added >= 3:
+                        break
+                    if _add_token(
+                        factual_tokens,
+                        m.group(0),
+                        -0.20,
+                        "real_indicator",
+                        "quantitative_fact",
+                        badge_lbl,
+                        desc,
+                    ):
+                        quant_added += 1
+
+            # 8. Доповнення найсильнішими очищеними словами перенавченої ML-моделі (без стоп-слів, дат і артефактів),
+            # якщо явних інституцій/цифр небагато (< 5) — корисно для спорту, лайфстайлу та міжнародних новин
+            if (
+                self._bundle
+                and "explainer_pipeline" in self._bundle
+                and (len(factual_tokens) + len(risk_tokens)) < 5
+            ):
+                try:
+                    from ml.train_and_evaluate import UKRAINIAN_XAI_STOPWORDS
+
+                    explainer_pipe = self._bundle["explainer_pipeline"]
+                    tfidf = explainer_pipe.named_steps["tfidf"]
+                    clf = explainer_pipe.named_steps["clf"]
+                    vec = tfidf.transform([combined_text])
+                    nz = vec.nonzero()[1]
+                    if len(nz) > 0:
+                        f_names = tfidf.get_feature_names_out()
+                        coefs = clf.coef_[0]
+                        ml_cands = []
+                        for idx in nz:
+                            tok = str(f_names[idx]).strip()
+                            low = tok.lower()
+                            if len(low) < 5 or any(ch.isdigit() for ch in low):
+                                continue
+                            parts = low.split()
+                            if low in UKRAINIAN_XAI_STOPWORDS or any(
+                                len(p) < 4 or p in UKRAINIAN_XAI_STOPWORDS for p in parts
+                            ):
+                                continue
+                            impact = float(coefs[idx]) * float(vec[0, idx])
+                            if abs(impact) < 0.14:
+                                continue
+                            # Погоджуємо напрям із загальною оцінкою ансамблю, щоб не додавати хибний шум
+                            if impact > 0 and predicted_fake_prob < 0.45:
+                                continue
+                            if impact < 0 and predicted_fake_prob > 0.65:
+                                continue
+                            # Перевіряємо, що токен реально є в тексті як ціле слово
+                            m_surf = re.search(
+                                rf"(?<![A-Za-zА-Яа-яІіЇїЄєҐґ0-9_]){re.escape(tok)}(?![A-Za-zА-Яа-яІіЇїЄєҐґ0-9_])",
+                                combined_text,
+                                flags=re.IGNORECASE,
+                            )
+                            if m_surf:
+                                ml_cands.append((abs(impact), impact, m_surf.group(0)))
+
+                        ml_cands.sort(key=lambda x: x[0], reverse=True)
+                        ml_added = 0
+                        for _abs_imp, imp, surf in ml_cands:
+                            if ml_added >= 3:
+                                break
+                            if imp > 0:
+                                added = _add_token(
+                                    risk_tokens,
+                                    surf,
+                                    min(0.24, imp),
+                                    "fake_indicator",
+                                    "ml_signal",
+                                    "Сигнал ризику (ML)",
+                                    "Лексичний маркер, статистично пов'язаний із маніпулятивним стилем у перенавченій моделі",
+                                )
+                            else:
+                                added = _add_token(
+                                    factual_tokens,
+                                    surf,
+                                    max(-0.19, imp),
+                                    "real_indicator",
+                                    "ml_signal",
+                                    "Стиль перевірених ЗМІ (ML)",
+                                    "Термін, статистично характерний для якісних українських медіа у перенавченій моделі",
+                                )
+                            if added:
+                                ml_added += 1
+                except Exception as ml_tok_err:
+                    logger.debug("Доповнення ML-токенами пропущено: %s", ml_tok_err)
+
+            risk_tokens.sort(key=lambda x: abs(x.weight), reverse=True)
+            factual_tokens.sort(key=lambda x: abs(x.weight), reverse=True)
+
+            # Балансуємо: усі знайдені реальні ризики (до 6) + найсильніші фактичні опори (до 7)
+            selected = risk_tokens[:6] + factual_tokens[: max(4, top_k - min(len(risk_tokens), 4))]
+            selected.sort(key=lambda x: abs(x.weight), reverse=True)
+            return selected[:top_k]
         except Exception as e:
             logger.debug("Помилка витягу XAI-токенів: %s", e)
             return []
@@ -451,7 +627,7 @@ class MLClassifierService:
             real_prob = 1.0 - fake_prob
             auth_score = round(real_prob * 100.0, 1)
             latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
-            tokens = self._extract_xai_tokens(combined)
+            tokens = self._extract_xai_tokens(combined, predicted_fake_prob=fake_prob)
             sentence_analysis = self.analyze_sentences(title, text)
 
             models_breakdown = {
@@ -479,7 +655,7 @@ class MLClassifierService:
             real_prob = 1.0 - hybrid_fake_prob
             auth_score = round(real_prob * 100.0, 1)
             latency_ms = round((time.perf_counter() - t_start) * 1000.0, 2)
-            tokens = self._extract_xai_tokens(combined)
+            tokens = self._extract_xai_tokens(combined, predicted_fake_prob=hybrid_fake_prob)
             sentence_analysis = self.analyze_sentences(title, text)
             return MLPredictionResult(
                 ml_authenticity_score=auth_score,

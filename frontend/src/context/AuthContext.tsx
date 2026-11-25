@@ -71,6 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isRedirectingOut, setIsRedirectingOut] = useState<boolean>(false);
+  const lastRemoteVerifyRef = useRef<number>(0);
 
   useEffect(() => {
     if (isRedirectingOut && pathname === "/") {
@@ -98,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clearLocalSession, router]);
 
-  const verifyCurrentSession = useCallback(async () => {
+  const verifyCurrentSession = useCallback(async (forceRemote = false) => {
     if (typeof window === "undefined") return;
     const savedToken = localStorage.getItem("truthlens_token");
     if (!savedToken) return;
@@ -108,6 +109,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Не перевантажуємо сервер і не перемальовуємо сторінки частіше ніж раз на 5 хв
+    const now = Date.now();
+    if (!forceRemote && now - lastRemoteVerifyRef.current < 300_000) {
+      return;
+    }
+    lastRemoteVerifyRef.current = now;
+
     try {
       const res = await fetch(`${API_BASE}/auth/me`, {
         headers: { Authorization: `Bearer ${savedToken}` },
@@ -115,9 +123,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       if (res.ok) {
         const freshUser = (await res.json()) as User;
-        setUser(freshUser);
-        setToken(savedToken);
-        localStorage.setItem("truthlens_user", JSON.stringify(freshUser));
+        const freshSerialized = JSON.stringify(freshUser);
+        setUser((prev) =>
+          prev && JSON.stringify(prev) === freshSerialized ? prev : freshUser
+        );
+        setToken((prev) => (prev === savedToken ? prev : savedToken));
+        if (localStorage.getItem("truthlens_user") !== freshSerialized) {
+          localStorage.setItem("truthlens_user", freshSerialized);
+        }
       } else if (res.status === 401 || res.status === 403) {
         handleAutoLogout();
       }
@@ -137,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           setToken(savedToken);
           setUser(JSON.parse(savedUser));
-          void verifyCurrentSession();
+          void verifyCurrentSession(true);
         }
       }
     } catch (e) {
@@ -151,15 +164,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handleReturnToTab = () => {
       if (document.visibilityState === "visible") {
-        void verifyCurrentSession();
+        void verifyCurrentSession(false);
       }
     };
     const handleFocus = () => {
-      void verifyCurrentSession();
+      void verifyCurrentSession(false);
     };
 
     const intervalId = setInterval(() => {
-      void verifyCurrentSession();
+      if (document.visibilityState === "visible") {
+        void verifyCurrentSession(false);
+      }
     }, 60_000);
 
     window.addEventListener("focus", handleFocus);

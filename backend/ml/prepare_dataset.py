@@ -8,7 +8,9 @@
 """
 
 import csv
+import html
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Any
@@ -17,7 +19,32 @@ BASE_ML_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_ML_DIR / "data"
 DATASET_CSV_PATH = DATA_DIR / "fake_news_dataset.csv"
 DATASET_STATS_PATH = DATA_DIR / "dataset_stats.json"
+DB_SNAPSHOT_PATH = DATA_DIR / "db_raw_snapshot.json"
 DB_PATH = BASE_ML_DIR.parent / "news_aggregator.db"
+
+WHITELISTED_UA_DOMAINS = {
+    "pravda.com.ua", "epravda.com.ua", "eurointegration.com.ua", "champion.com.ua",
+    "ukrinform.ua", "suspilne.media", "zn.ua", "lb.ua", "interfax.com.ua",
+    "babel.ua", "hromadske.ua", "bbc.com", "dw.com", "radiosvoboda.org",
+    "unian.net", "unn.ua", "fakty.ua", "espreso.tv", "sport.ua",
+}
+
+
+def _clean_ml_text(raw: str) -> str:
+    """Очищає текст від HTML-сутностей, URL, технічних RSS-хвостів StopFake/VoxCheck ('Source', '— медіа')."""
+    if not raw:
+        return ""
+    txt = html.unescape(str(raw))
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    txt = re.sub(r"https?://\S+", " ", txt)
+    # Видаляємо технічні підписи RSS-стрічок StopFake / VoxCheck / ІМІ, щоб модель не перенавчалась на артефактах
+    txt = re.sub(r"\bSource\b\.?", " ", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"Джерело\s*:[^.!?\n]{0,120}", " ", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\s*[—–-]\s*(медіа|відео|фото|обкладинка|соцмережі|змі)\s*$", "", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\(#\d+\)", "", txt)
+    txt = txt.replace("\xa0", " ").replace("[…]", " ")
+    txt = re.sub(r"\s+", " ", txt).strip()
+    return txt
 
 
 # Курований корпус достовірних журналістських повідомлень (label = 0: Real / Verified)
@@ -446,6 +473,126 @@ CURATED_FAKE_SAMPLES: List[Dict[str, Any]] = [
         "language": "ua",
         "label": 1,
     },
+    {
+        "title": "СЕНСАЦІЯ У СПОРТІ! Відомий тренер таємно продав вирішальний матч за секретним наказом букмекерської мафії!!",
+        "text": "Гучний скандал у кулуарах футболу! Анонімні інсайдери з роздягальні стверджують, що результат поєдинку був сфальсифікований заздалегідь. Деталі вражають — поширте, поки відео викриття не заблокували!",
+        "source": "clickbait-news.net",
+        "category": "Спорт",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ТЕРМІНОВО!! Податкова автоматично списуватиме 30% з кожного переказу між картками вже з завтрашнього дня!",
+        "text": "У мережі спалахнула паніка серед клієнтів банків! Анонімні телеграм-канали поширюють фейковий злив про нібито таємну постанову щодо тотального оподаткування всіх приватних переказів! Терміново знімайте кошти!",
+        "source": "politeka.net",
+        "category": "Економіка",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ШОКУЮЧЕ ВИКРИТТЯ! Аптечна мафія десятиліттями замовчує копійчаний засіб, який миттєво знижує тиск назавжди!",
+        "text": "Вся правда, яку приховують лікарі! Секретний народний рецепт з трьох інгредієнтів нібито повністю очищує судини за одну ніч. Невідомі цілителі закликають терміново відмовитися від таблеток і замовити еліксир!",
+        "source": "clickbait-news.net",
+        "category": "Здоров'я",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "УВАГА! Таємний графік блекаутів: світло вимикатимуть по 22 години на добу в усіх регіонах без винятку!!",
+        "text": "Енергетичний колапс і паніка! Анонімні джерела в кулуарах залякують громадян тотальним відключенням тепла та електрики на всю зиму. Поширте це попередження знайомим і переходьте у закритий телеграм-канал!",
+        "source": "strana.today",
+        "category": "Суспільство",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "СКАНДАЛ! Олімпійський комітет нібито дискваліфікував усіх спортсменів збірної через таємну змову суддів!",
+        "text": "Сенсаційна заява з анонімних джерел сколихнула вболівальників! Пропагандистські ресурси розганяють маніпуляцію про нібито політичний шантаж та сфальсифіковані допінг-проби на міжнародному турнірі!",
+        "source": "readovka.news",
+        "category": "Спорт",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ВИ НЕ ПОВІРИТЕ! Світові еліти підписали таємний протокол про заборону приватних автомобілів та готівки!",
+        "text": "Конспірологічне викриття століття! Анонімні інсайдери запевняють, що на закритому саміті вже затвердили цифровий концтабір та примусовий контроль за кожною покупкою громадян! Деталі шокують!",
+        "source": "tsargrad.tv",
+        "category": "Світ",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ТЕРМІНОВО! Шахрайський вкид про безкоштовні паливні талони на 100 літрів бензину кожному водієві!",
+        "text": "У месенджерах масово розсилають клікбейтне повідомлення про нібито державну акцію з роздачі пального. Шахраї вимагають пройти опитування та ввести пін-код картки, створюючи штучний ажіотаж!",
+        "source": "clickbait-news.net",
+        "category": "Економіка",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ШОК! Нове оновлення смартфонів нібито таємно записує всі дзвінки і передає їх іноземним спецслужбам!!",
+        "text": "Кіберпаніка у соцмережах! Невідомі експерти лякають користувачів фейковим вірусом, який нібито викрадає паролі через камеру. Поширте негайно і вимкніть секретну функцію за інструкцією!",
+        "source": "znaj.ua",
+        "category": "Технології",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ПОЧАЛОСЯ! Сусідня держава нібито повністю закрила кордон і заблокувала всі гуманітарні вантажі назавжди!",
+        "text": "Маніпулятивний вкид для нагнітання паніки! Анонімні пабліки поширюють вигадану історію про тотальну блокаду та розрив союзницьких відносин, посилаючись лише на чутки у кулуарах!",
+        "source": "ria.ru",
+        "category": "Світ",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "СЕНСАЦІЯ! Вакцинація нібито змінює ДНК людини і викликає приховану мутацію — таємний злив лаборантів!",
+        "text": "Антинаукова конспірологія та залякування пацієнтів! Фейкові експерти поширюють вигадку про секретні експерименти фармацевтичної мафії та закликають відмовлятися від щеплень!",
+        "source": "sharij.net",
+        "category": "Здоров'я",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "КАТАСТРОФА НА РИНКУ! Ціни на хліб та продукти нібито злетять у десять разів вже наступного тижня!!",
+        "text": "Тотальний дефіцит і голодний бунт! Анонімні джерела розганяють панічні чутки про порожні склади та таємний вивіз продовольства, провокуючи штучний ажіотаж у супермаркетах!",
+        "source": "vesti.ua",
+        "category": "Економіка",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "УВАГА! Таємна мобілізація пенсіонерів та школярів — пропагандисти запустили чергову хвилю залякування!",
+        "text": "Класична дезінформаційна кампанія з підробленим документом! Анонімні телеграм-канали тиражують фейковий наказ із вигаданими печатками, щоб посіяти хаос і паніку серед населення!",
+        "source": "tass.ru",
+        "category": "Політика",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ШОК! Відомий чемпіон боксу нібито таємно змінив громадянство через скандал із федерацією!",
+        "text": "Клікбейтна вигадка, яку підхопили сумнівні сайти! Без жодних підтверджень анонімні блогери приписали спортсмену скандальні цитати про втечу за кордон та зраду вболівальників!",
+        "source": "politeka.net",
+        "category": "Спорт",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ВИКРИТТЯ СТОЛІТТЯ! Хімтрейли з літаків нібито спеціально викликають засуху та отруюють урожай!!",
+        "text": "Конспірологічна теорія змови набирає обертів у закритих групах! Самопроголошені експерти стверджують про кліматичну зброю та секретну змову корпорацій проти фермерів!",
+        "source": "clickbait-news.net",
+        "category": "Суспільство",
+        "language": "ua",
+        "label": 1,
+    },
+    {
+        "title": "ТЕРМІНОВО! Масове блокування месенджерів і штраф 50 тисяч гривень за кожне повідомлення в чаті!",
+        "text": "Абсурдний фейк для залучення підписників у закриті канали! Анонімні адміни лякають тотальною цензурою та таємним законом про прослуховування, вимагаючи терміново підписатися на резервний бот!",
+        "source": "znaj.ua",
+        "category": "Технології",
+        "language": "ua",
+        "label": 1,
+    },
     # --- INTERNATIONAL FAKE / CLICKBAIT / CONSPIRACY SAMPLES (EN) ---
     {
         "title": "SHOCKING! Secret revealed: Global banks planning total cash ban and account freeze next Monday!!",
@@ -485,13 +632,25 @@ CURATED_FAKE_SAMPLES: List[Dict[str, Any]] = [
 def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Витягує реальні перевірені статті (Verified) та реальні спростовані фейки (FactCheckClaim)
-    безпосередньо з активної бази даних PostgreSQL (через asyncpg) або SQLite.
+    безпосередньо з активної бази даних PostgreSQL (через asyncpg) або локального кешу DB_SNAPSHOT_PATH.
     """
+    import os
+
+    if os.environ.get("USE_DB_CACHE") == "1" and DB_SNAPSHOT_PATH.exists():
+        try:
+            snap = json.loads(DB_SNAPSHOT_PATH.read_text(encoding="utf-8"))
+            cached_real = snap.get("db_real", [])
+            cached_fake = snap.get("db_fake", [])
+            if cached_real and cached_fake:
+                print(f"[CACHE] Завантажено локальний знімок БД: {len(cached_real)} Real + {len(cached_fake)} Fake (0 MB Neon egress)")
+                return cached_real, cached_fake
+        except Exception as e:
+            print(f"[WARN] Не вдалося прочитати кеш БД: {e}")
+
     db_real: List[Dict[str, Any]] = []
     db_fake: List[Dict[str, Any]] = []
 
     async def _fetch_async() -> None:
-        import os
         import sys
         backend_root = str(BASE_ML_DIR.parent)
         if backend_root not in sys.path:
@@ -502,52 +661,71 @@ def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, A
         from app.db.session import engine
 
         async with engine.connect() as conn:
-            # 1. Витягуємо достовірні статті з таблиці articles (хмарна БД Neon.tech PostgreSQL)
+            # 1. Стратифікована вибірка достовірних УКРАЇНСЬКИХ статей по всіх 7 категоріях і різних датах
+            # (витягуємо лише title + короткий уривок <= 650 символів для мінімального трафіку Neon ~0.7 МБ)
             res_real = await conn.execute(
                 text(
                     """
-                    SELECT title, summary, full_text, domain, category, language, trust_score, verdict
-                    FROM articles
-                    WHERE verdict = 'Verified' AND trust_score >= 82.0
-                    ORDER BY published_at DESC
-                    LIMIT 750
+                    WITH ranked AS (
+                        SELECT
+                            title,
+                            LEFT(COALESCE(NULLIF(summary, ''), full_text, ''), 650) AS body_short,
+                            domain,
+                            category,
+                            language,
+                            ROW_NUMBER() OVER (PARTITION BY category ORDER BY md5(id::text)) AS rn
+                        FROM articles
+                        WHERE language = 'ua'
+                          AND verdict = 'Verified'
+                          AND trust_score >= 82.0
+                          AND LENGTH(COALESCE(title, '')) >= 18
+                    )
+                    SELECT title, body_short, domain, category, language
+                    FROM ranked
+                    WHERE rn <= 125
+                    ORDER BY rn, category
+                    LIMIT 820
                     """
                 )
             )
             for row in res_real.mappings():
-                title = (row["title"] or "").strip()
-                body = (row["full_text"] or row["summary"] or "").strip()
-                if len(title) >= 15 and len(body) >= 30:
+                title = _clean_ml_text(row["title"] or "")
+                body = _clean_ml_text(row["body_short"] or "")
+                if len(title) >= 15 and len(body) >= 25:
                     db_real.append({
                         "title": title,
-                        "text": body[:1500],
+                        "text": body[:650],
                         "source": row["domain"] or "whitelisted_media",
                         "category": row["category"] or "Загальне",
-                        "language": row["language"] or "ua",
+                        "language": "ua",
                         "label": 0,
                     })
 
-            # 2. Витягуємо статті з високим ризиком з таблиці articles
+            # 2. Витягуємо статті з високим ризиком з таблиці articles (виключаючи перевірені ЗМІ Білого списку!)
             res_risk = await conn.execute(
                 text(
                     """
-                    SELECT title, summary, full_text, domain, category, language, trust_score, verdict
+                    SELECT title, LEFT(COALESCE(NULLIF(summary, ''), full_text, ''), 650) AS body_short,
+                           domain, category, language
                     FROM articles
-                    WHERE verdict = 'High Risk' OR trust_score <= 38.0
-                    LIMIT 250
+                    WHERE language = 'ua' AND (verdict = 'High Risk' OR trust_score <= 38.0)
+                    LIMIT 100
                     """
                 )
             )
             for row in res_risk.mappings():
-                title = (row["title"] or "").strip()
-                body = (row["full_text"] or row["summary"] or "").strip()
+                dom = (row["domain"] or "").lower().strip().lstrip("www.")
+                if any(dom == w or dom.endswith("." + w) for w in WHITELISTED_UA_DOMAINS):
+                    continue
+                title = _clean_ml_text(row["title"] or "")
+                body = _clean_ml_text(row["body_short"] or "")
                 if len(title) >= 15:
                     db_fake.append({
                         "title": title,
-                        "text": body[:1500] if body else title,
-                        "source": row["domain"] or "blacklisted_media",
+                        "text": body[:650] if body else title,
+                        "source": dom or "blacklisted_media",
                         "category": row["category"] or "Загальне",
-                        "language": row["language"] or "ua",
+                        "language": "ua",
                         "label": 1,
                     })
 
@@ -558,26 +736,29 @@ def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, A
                     SELECT claim, explanation, fact_checker, rating, language
                     FROM fact_check_claims
                     ORDER BY created_at DESC
-                    LIMIT 400
+                    LIMIT 500
                     """
                 )
             )
-            import re
+            from app.services.factcheck_service import is_specific_debunked_claim
+
             meta_cleanup = re.compile(
                 r"\b(фейк|маніпуляція|неправда|спростування|stopfake|voxcheck|дезінформація|пропагандисти)\b[:\s\-]*",
                 flags=re.IGNORECASE,
             )
             for row in res_claims.mappings():
-                claim_title = meta_cleanup.sub("", (row["claim"] or "")).strip()
-                explanation = meta_cleanup.sub("", (row["explanation"] or "")).strip()
+                raw_claim = _clean_ml_text(row["claim"] or "")
+                raw_expl = _clean_ml_text(row["explanation"] or "")
+                if not is_specific_debunked_claim(raw_claim, raw_expl):
+                    continue
+                claim_title = meta_cleanup.sub("", raw_claim).strip(" :–—-")
                 if len(claim_title) >= 15:
-                    fake_body = f"{claim_title}. {explanation[:450]}".strip() if explanation else claim_title
                     db_fake.append({
                         "title": claim_title,
-                        "text": fake_body,
+                        "text": claim_title,
                         "source": f"debunked_by_{row['fact_checker'] or 'StopFake'}",
                         "category": "Політика",
-                        "language": row["language"] or "ua",
+                        "language": "ua",
                         "label": 1,
                     })
 
@@ -586,23 +767,57 @@ def load_samples_from_local_db() -> tuple[List[Dict[str, Any]], List[Dict[str, A
     try:
         import asyncio
         asyncio.run(_fetch_async())
+        if db_real and db_fake:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            DB_SNAPSHOT_PATH.write_text(
+                json.dumps({"db_real": db_real, "db_fake": db_fake}, ensure_ascii=False),
+                encoding="utf-8",
+            )
     except Exception as e:
-        print(f"[WARN] Не вдалося прочитати додаткові записи з локальної БД: {e}")
+        print(f"[WARN] Не вдалося прочитати додаткові записи з БД: {e}")
 
     return db_real, db_fake
 
 
 def build_and_save_dataset() -> Dict[str, Any]:
     """
-    Формує збалансований датасет (Real vs Fake), видаляє дублікати,
-    зберігає у CSV для навчання (як локального, так і в Google Colab) та повертає статистику.
+    Формує збалансований український датасет (800 Real + 800 Fake = 1 600 записів),
+    видаляє дублікати та технічні артефакти RSS, зберігає у CSV та повертає статистику.
     """
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     db_real, db_fake = load_samples_from_local_db()
 
-    all_real = list(CURATED_REAL_SAMPLES) + db_real
-    all_fake = list(CURATED_FAKE_SAMPLES) + db_fake
+    # Використовуємо виключно українськомовний корпус (відповідно до UA-only профілю платформи)
+    curated_real_ua = [
+        {**r, "title": _clean_ml_text(r["title"]), "text": _clean_ml_text(r["text"])}
+        for r in CURATED_REAL_SAMPLES
+        if r.get("language") == "ua"
+    ]
+    curated_fake_ua = [
+        {**r, "title": _clean_ml_text(r["title"]), "text": _clean_ml_text(r["text"])}
+        for r in CURATED_FAKE_SAMPLES
+        if r.get("language") == "ua"
+    ]
+
+    all_real = db_real + curated_real_ua
+
+    # Обмежуємо повторювані однотипні бот-шаблони VoxCheck («військовий N-ї ОМБр...») до макс. 8 прикладів,
+    # щоб одна кампанія не викривлювала глобальні ваги класифікатора
+    brigade_psyop_re = re.compile(r"\b\d+-?(?:ї|го)\s+(?:ОМБр|ОДШБр|ОБр|ОМПБр|ОШП|ОШБр|ОВМБр|ОІБр)\b", flags=re.IGNORECASE)
+    filtered_db_fake: List[Dict[str, Any]] = []
+    psyop_count = 0
+    for item in db_fake:
+        dom = str(item.get("source", "")).lower().strip().lstrip("www.")
+        if any(dom == w or dom.endswith("." + w) for w in WHITELISTED_UA_DOMAINS):
+            continue
+        if brigade_psyop_re.search(item.get("title", "")):
+            if psyop_count >= 8:
+                continue
+            psyop_count += 1
+        filtered_db_fake.append(item)
+
+    all_fake = filtered_db_fake + curated_fake_ua
 
     # Дедуплікація за нормалізованим заголовком
     def dedup(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -610,7 +825,7 @@ def build_and_save_dataset() -> Dict[str, Any]:
         unique = []
         for item in items:
             key = item["title"].strip().lower()[:80]
-            if key not in seen:
+            if key and key not in seen:
                 seen.add(key)
                 unique.append(item)
         return unique
@@ -618,8 +833,8 @@ def build_and_save_dataset() -> Dict[str, Any]:
     unique_real = dedup(all_real)
     unique_fake = dedup(all_fake)
 
-    # Формуємо збалансовану вибірку до 600 Real + 600 Fake (1200+ записів) з різноманітними контекстами
-    target_per_class = min(600, max(len(unique_real), len(unique_fake), 400))
+    # Формуємо збалансовану вибірку 800 Real + 800 Fake (1 600 записів, 50/50)
+    target_per_class = 800
 
     real_prefixes = [
         "Офіційне повідомлення: ",
@@ -640,15 +855,30 @@ def build_and_save_dataset() -> Dict[str, Any]:
         "Анонімні джерела в кулуарах: ",
         "ПАНІКА В МЕРЕЖІ! ",
         "Вся правда, яку замовчують: ",
-        "Ексклюзивний злив із закритої наради: ",
-        "УВАГА! Таємний наказ вже з понеділка: ",
+        "Таємний злив із закритої наради: ",
+        "УВАГА! Секретний наказ: ",
+        "СКАНДАЛЬНЕ ВИКРИТТЯ! ",
+        "ШОКУЮЧІ ПОДРОБИЦІ: ",
+        "ТОТАЛЬНА КАТАСТРОФА! ",
+        "ЕКСКЛЮЗИВНА ЗМОВА: ",
     ]
     fake_suffixes = [
-        "Як стверджують анонімні джерела в кулуарах, влада ретельно приховує ці секретні дані від громадян!",
-        "У соціальних мережах та анонімних телеграм-каналах спалахнула паніка, поширте поки не видалили!",
-        "Жодних офіційних документів немає, але інсайдери запевняють, що на нас чекає тотальна катастрофа!",
-        "Невідомі експерти заявляють про приховану змову та закликають терміново знімати готівку з карток!",
-        "Деталі вражають — чергова маніпуляція без жодного посилання на перевірених спікерів чи відомства!",
+        "Анонімні інсайдери в кулуарах наполягають, що це ретельно приховують від громадян!",
+        "У закритих телеграм-каналах спалахнула паніка — поширте негайно, поки не заблокували!",
+        "Маніпулятивний вкид поширюється без підтверджень, викликаючи штучний ажіотаж та паніку!",
+        "Невідомі блогери розганяють чутки про приховану змову та закликають терміново знімати готівку!",
+        "Чергова скандальна сенсація побудована виключно на плітках та анонімних дописах!",
+        "Пропагандистські пабліки тиражують залякування та підроблений скриншот для створення хаосу!",
+        "Клікбейтна вигадка про таємний протокол і тотальний колапс стрімко шириться соцмережами!",
+        "Самопроголошені експерти лякають дефолтом, блокуванням рахунків та неминучою катастрофою!",
+        "Шахрайський допис використовує емоційний шантаж і фальшиву обіцянку миттєвих виплат!",
+        "Конспірологічне викриття звинувачує світову змову без жодних доказів чи посилань!",
+        "Сенсаційна заява зі сфальсифікованою цитатою має явні ознаки дезінформаційної кампанії!",
+        "Панічні чутки про раптову заборону та примусові штрафи спрямовані на дестабілізацію!",
+        "Анонімні адміни провокують масову істерику, вимагаючи терміново перейти у закритий бот!",
+        "Псевдонаукові твердження та маніпулятивні обіцянки миттєвого зцілення вводять в оману!",
+        "Вкид про таємну угоду та зовнішнє управління повторює типові кремлівські наративи!",
+        "Шокуючі подробиці виявилися фальшивкою, створеною для залучення клікбейтного трафіку!",
     ]
 
     idx = 0
@@ -661,7 +891,7 @@ def build_and_save_dataset() -> Dict[str, Any]:
             "text": f"{template['text']} Інформацію офіційно підтверджено у звіті пресслужби відповідного відомства.",
             "source": template["source"],
             "category": template["category"],
-            "language": template["language"],
+            "language": "ua",
             "label": 0,
         })
         idx += 1
@@ -673,17 +903,17 @@ def build_and_save_dataset() -> Dict[str, Any]:
         prefix = fake_prefixes[idx % len(fake_prefixes)]
         suffix = fake_suffixes[idx % len(fake_suffixes)]
         unique_fake.append({
-            "title": f"{prefix}{template['title']} (#{idx + 1})",
+            "title": f"{prefix}{template['title']}",
             "text": f"{template['text']} {suffix}",
             "source": template["source"],
             "category": template["category"],
-            "language": template["language"],
+            "language": "ua",
             "label": 1,
         })
         idx += 1
 
     # Зрівнюємо кількість для ідеального балансу 50/50
-    balanced_count = min(len(unique_real), len(unique_fake))
+    balanced_count = min(target_per_class, len(unique_real), len(unique_fake))
     final_samples = unique_real[:balanced_count] + unique_fake[:balanced_count]
 
     # Запис у CSV

@@ -12,14 +12,6 @@ import { TrustBadge } from "@/components/TrustBadge";
 import { NewsCard } from "@/components/NewsCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardContent,
-} from "@/components/ui/card";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -43,78 +35,76 @@ import {
   Eye,
   FileText,
   Lock,
+  ListChecks,
+  Scale,
+  User as UserIcon,
 } from "lucide-react";
 
 type HighlightMode = "all" | "heatmap" | "fake" | "real" | "none";
+type InspectorTab = "models" | "protocol";
 
 interface HighlightRule {
   phrase: string;
   type: "manipulation_phrase" | "fake_token" | "real_token";
-  label: string;
+  badgeLabel: string;
+  reason: string;
   weight?: number;
 }
 
-const BUILTIN_MANIPULATION_PHRASES: Array<{ phrase: string; label: string }> = [
-  { phrase: "терміново", label: "Штучне нагнітання терміновості (клікбейт)" },
-  { phrase: "сенсація", label: "Штучна сенсаційність для привернення уваги" },
-  { phrase: "шок", label: "Емоційний клікбейт-тригер" },
-  { phrase: "шокуючі", label: "Емоційне перебільшення" },
-  { phrase: "приховують", label: "Конспірологічний прийом про «приховану правду»" },
-  { phrase: "спалахнула паніка", label: "Нагнітання штучної тривожності" },
-  { phrase: "паніка", label: "Емоційний тиск на читача" },
-  { phrase: "ви не повірите", label: "Клікбейт-пастка допитливості" },
-  { phrase: "анонімні джерела", label: "Відсутність перевіреного джерела інформації" },
-  { phrase: "інсайдери розкрили", label: "Непідтверджене посилання на анонімів" },
-  { phrase: "тотальна катастрофа", label: "Гіперболізація та залякування" },
-  { phrase: "зрада", label: "Емоційна поляризація" },
-];
-
 function ArticleDetailSkeleton() {
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-7">
       <div className="flex items-center justify-between gap-4">
-        <Skeleton className="h-9 w-48 rounded-xl" />
+        <Skeleton className="h-9 w-44 rounded-xl" />
         <div className="flex items-center gap-2.5">
           <Skeleton className="h-9 w-40 rounded-xl" />
           <Skeleton className="h-9 w-44 rounded-xl" />
         </div>
       </div>
 
-      <Card className="p-6 sm:p-8 flex flex-col gap-6">
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 pb-6 border-b border-border/70">
+      <div className="rounded-2xl border border-border/80 bg-card p-6 sm:p-8 flex flex-col gap-6">
+        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
           <div className="flex flex-col gap-3 flex-1">
             <div className="flex items-center gap-2">
-              <Skeleton className="h-6 w-28 rounded-full" />
               <Skeleton className="h-6 w-24 rounded-full" />
-              <Skeleton className="h-5 w-44" />
+              <Skeleton className="h-5 w-48" />
             </div>
             <Skeleton className="h-9 w-11/12" />
             <Skeleton className="h-9 w-3/4" />
-            <Skeleton className="h-4 w-52" />
+            <Skeleton className="h-4 w-60" />
           </div>
-          <Skeleton className="h-24 w-48 rounded-2xl" />
+          <Skeleton className="h-24 w-56 rounded-xl" />
         </div>
-        <Skeleton className="h-20 w-full rounded-xl" />
-      </Card>
+        <div className="pt-5 border-t border-border/60">
+          <Skeleton className="h-14 w-full rounded-xl" />
+        </div>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-7">
-          <Card className="p-6 flex flex-col gap-4">
-            <Skeleton className="h-7 w-64" />
-            <Skeleton className="w-full aspect-video rounded-xl" />
-            <Skeleton className="h-5 w-full" />
-            <Skeleton className="h-5 w-11/12" />
-            <Skeleton className="h-5 w-4/5" />
-            <Skeleton className="h-5 w-full" />
-          </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="lg:col-span-7 xl:col-span-8 rounded-2xl border border-border/80 bg-card p-6 sm:p-8 flex flex-col gap-5">
+          <div className="flex items-center justify-between gap-3">
+            <Skeleton className="h-6 w-44" />
+            <Skeleton className="h-8 w-72 rounded-xl" />
+          </div>
+          <Skeleton className="w-full aspect-video rounded-xl" />
+          <Skeleton className="h-5 w-full" />
+          <Skeleton className="h-5 w-11/12" />
+          <Skeleton className="h-5 w-5/6" />
+          <Skeleton className="h-5 w-full" />
         </div>
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          <Card className="p-6 flex flex-col gap-4">
-            <Skeleton className="h-6 w-56" />
+        <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-5">
+          <div className="rounded-2xl border border-border/80 bg-card p-6 flex flex-col gap-4">
+            <Skeleton className="h-6 w-48" />
             {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 w-full rounded-xl" />
+              <Skeleton key={i} className="h-12 w-full rounded-lg" />
             ))}
-          </Card>
+          </div>
+          <div className="rounded-2xl border border-border/80 bg-card p-6 flex flex-col gap-4">
+            <Skeleton className="h-8 w-full rounded-xl" />
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -134,13 +124,18 @@ export default function ArticleDetailPage() {
   const [isBookmarked, setIsBookmarked] = useState<boolean>(false);
   const [updatingBookmark, setUpdatingBookmark] = useState<boolean>(false);
   const [highlightMode, setHighlightMode] = useState<HighlightMode>("all");
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("models");
   const [imgFailed, setImgFailed] = useState<boolean>(false);
+
   const checkedArticleIdRef = useRef<string | null>(null);
+  const loadedKeyRef = useRef<string | null>(null);
+  const userId = user?.id ?? null;
 
   const fetchDetail = useCallback(async () => {
     if (!articleId) return;
     setLoading(true);
     setError(null);
+    setImgFailed(false);
     try {
       const headers: Record<string, string> = {};
       if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -165,7 +160,11 @@ export default function ArticleDetailPage() {
   useEffect(() => {
     if (!articleId || authLoading || !guestReady) return;
 
-    if (user) {
+    const loadKey = `${articleId}:${userId ?? "guest"}:${token ?? ""}`;
+    if (loadedKeyRef.current === loadKey) return;
+
+    if (userId !== null) {
+      loadedKeyRef.current = loadKey;
       setGuestLimitBlocked(false);
       void fetchDetail();
       return;
@@ -176,15 +175,17 @@ export default function ArticleDetailPage() {
       const numericId = Number(articleId);
       const allowed = consumeArticleDetail(Number.isFinite(numericId) ? numericId : -1);
       if (!allowed) {
+        loadedKeyRef.current = loadKey;
         setGuestLimitBlocked(true);
         setLoading(false);
         return;
       }
     }
 
+    loadedKeyRef.current = loadKey;
     setGuestLimitBlocked(false);
     void fetchDetail();
-  }, [articleId, authLoading, guestReady, user, consumeArticleDetail, fetchDetail]);
+  }, [articleId, authLoading, guestReady, userId, token, consumeArticleDetail, fetchDetail]);
 
   const toggleBookmark = async () => {
     if (!article) return;
@@ -219,20 +220,44 @@ export default function ArticleDetailPage() {
     const rules: HighlightRule[] = [];
     const seen = new Set<string>();
 
-    for (const item of BUILTIN_MANIPULATION_PHRASES) {
-      const key = item.phrase.toLowerCase();
-      if (!seen.has(key)) {
-        seen.add(key);
-        rules.push({
-          phrase: item.phrase,
-          type: "manipulation_phrase",
-          label: item.label,
-        });
-      }
+    // Основне джерело: доказово-семантичні XAI-маркери з точними категоріями й поясненнями від бекенду
+    for (const tok of (tb.xai_top_tokens || []) as XAITokenContribution[]) {
+      const cleanTok = (tok.token || "").trim();
+      if (cleanTok.length < 2) continue;
+      const key = cleanTok.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const isFake = tok.direction === "fake_indicator";
+      const isHardManipulation = tok.category === "manipulation";
+      const ruleType: HighlightRule["type"] = isHardManipulation
+        ? "manipulation_phrase"
+        : isFake
+        ? "fake_token"
+        : "real_token";
+
+      rules.push({
+        phrase: cleanTok,
+        type: ruleType,
+        badgeLabel:
+          tok.label ||
+          (isHardManipulation
+            ? "Маніпуляція / клікбейт"
+            : isFake
+            ? "Емоційне забарвлення"
+            : "Фактична опора"),
+        reason:
+          tok.reason ||
+          (isFake
+            ? "Стилістичний маркер емоційного тиску або розмитої атрибуції"
+            : "Конкретне верифіковане джерело, документ або числовий факт"),
+        weight: tok.weight,
+      });
     }
 
+    // Додаткові явні стилістичні тригери, якщо їх не було в xai_top_tokens
     for (const marker of tb.manipulation_markers || []) {
-      const quoted = marker.match(/[«"']([^»"']{3,35})[»"']/);
+      const quoted = marker.match(/[«"']([^»"']{3,40})[»"']/);
       if (quoted && quoted[1]) {
         const cleanPhrase = quoted[1].trim();
         const key = cleanPhrase.toLowerCase();
@@ -241,28 +266,11 @@ export default function ArticleDetailPage() {
           rules.push({
             phrase: cleanPhrase,
             type: "manipulation_phrase",
-            label: marker,
+            badgeLabel: "Маніпулятивний зворот",
+            reason: marker,
           });
         }
       }
-    }
-
-    for (const tok of (tb.xai_top_tokens || []) as XAITokenContribution[]) {
-      const cleanTok = (tok.token || "").trim();
-      if (cleanTok.length < 3) continue;
-      const key = cleanTok.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      const isFake = tok.direction === "fake_indicator";
-      rules.push({
-        phrase: cleanTok,
-        type: isFake ? "fake_token" : "real_token",
-        label: isFake
-          ? "Слово, характерне для емоційних або сумнівних повідомлень"
-          : "Слово, характерне для перевірених фактів та офіційних джерел",
-        weight: tok.weight,
-      });
     }
 
     rules.sort((a, b) => b.phrase.length - a.phrase.length);
@@ -287,10 +295,19 @@ export default function ArticleDetailPage() {
     const escapedPatterns = activeRules.map((r) =>
       r.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     );
-    const regex = new RegExp(`(${escapedPatterns.join("|")})`, "gi");
+    // Суворі Unicode-межі слів, щоб «шок» не підсвічував середину слова «мішок»,
+    // але коректно працював для «$15 млн», «14%», «НБУ», «Укренерго»
+    const regex = new RegExp(
+      `(?<![A-Za-zА-Яа-яІіЇїЄєҐґ0-9_])(${escapedPatterns.join("|")})(?![A-Za-zА-Яа-яІіЇїЄєҐґ0-9_])`,
+      "gi"
+    );
     const parts = textBlock.split(regex);
 
     return parts.map((part, idx) => {
+      // У String.split з однією групою захоплення збіги завжди мають непарний індекс (1, 3, 5...)
+      if (idx % 2 === 0) {
+        return <React.Fragment key={idx}>{part}</React.Fragment>;
+      }
       const lower = part.toLowerCase();
       const matchedRule = activeRules.find((r) => r.phrase.toLowerCase() === lower);
       if (!matchedRule) {
@@ -307,24 +324,17 @@ export default function ArticleDetailPage() {
           ? "warning"
           : "verified";
 
-      const badgeLabel =
-        matchedRule.type === "manipulation_phrase"
-          ? "Маніпулятивний зворот"
-          : isRisk
-          ? "Емоційний тригер"
-          : "Ознака фактажу";
-
       return (
         <Tooltip key={idx} delayDuration={80}>
           <TooltipTrigger asChild>
             <span
               tabIndex={0}
-              className={`inline-block px-1.5 py-0.5 mx-0.5 rounded-md font-medium transition-colors cursor-help border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+              className={`inline rounded-md px-1 py-0.5 font-medium transition-colors cursor-help border-b focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 matchedRule.type === "manipulation_phrase"
                   ? "bg-destructive/20 text-foreground border-destructive hover:bg-destructive/30"
                   : isRisk
                   ? "bg-warning/15 text-foreground border-warning hover:bg-warning/25"
-                  : "bg-verified/15 text-foreground border-verified hover:bg-verified/25"
+                  : "bg-verified/15 text-foreground border-verified/80 hover:bg-verified/25"
               }`}
             >
               {part}
@@ -333,16 +343,11 @@ export default function ArticleDetailPage() {
           <TooltipContent side="top" className="flex flex-col gap-1.5 p-3 max-w-xs">
             <div className="flex items-center justify-between gap-2">
               <Badge variant={badgeVariant} className="text-[10px] px-2 py-0">
-                {badgeLabel}
+                {matchedRule.badgeLabel}
               </Badge>
-              {typeof matchedRule.weight === "number" && (
-                <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
-                  вага: {matchedRule.weight > 0 ? `+${matchedRule.weight.toFixed(2)}` : matchedRule.weight.toFixed(2)}
-                </span>
-              )}
             </div>
             <p className="text-xs text-popover-foreground leading-snug">
-              {matchedRule.label}
+              {matchedRule.reason}
             </p>
           </TooltipContent>
         </Tooltip>
@@ -410,37 +415,127 @@ export default function ArticleDetailPage() {
     (t) => t.direction === "fake_indicator"
   );
 
+  const sortedCorroborating = [...(tb.corroborating_articles || [])].sort(
+    (a, b) => b.similarity - a.similarity
+  );
+
+  const verdictTone =
+    tb.score >= 80
+      ? "verified"
+      : tb.score >= 50
+      ? "warning"
+      : "destructive";
+
+  const factorRows = [
+    {
+      label: "Надійність джерела (ІМІ)",
+      weight: "36%",
+      score: tb.source_reputation_score,
+      hint: "Редакційні стандарти та репутація домену",
+      barClass:
+        tb.source_reputation_score >= 80
+          ? "bg-verified"
+          : tb.source_reputation_score >= 55
+          ? "bg-warning"
+          : "bg-destructive",
+      valClass:
+        tb.source_reputation_score >= 80
+          ? "text-verified"
+          : tb.source_reputation_score >= 55
+          ? "text-accent"
+          : "text-destructive",
+    },
+    {
+      label: "Спокійний тон і стилометрія",
+      weight: "25%",
+      score: tb.stylometry_score,
+      hint: "Відсутність клікбейту, капслоку й емоційного тиску",
+      barClass:
+        tb.stylometry_score >= 75
+          ? "bg-primary"
+          : tb.stylometry_score >= 50
+          ? "bg-warning"
+          : "bg-destructive",
+      valClass:
+        tb.stylometry_score >= 75
+          ? "text-primary"
+          : tb.stylometry_score >= 50
+          ? "text-accent"
+          : "text-destructive",
+    },
+    {
+      label: "Автентичність тексту (ШІ)",
+      weight: "24%",
+      score: tb.ml_authenticity_score,
+      hint: "Ансамбль ukr-roberta, XLM-RoBERTa та Hybrid NLP",
+      barClass:
+        tb.ml_authenticity_score >= 75
+          ? "bg-verified"
+          : tb.ml_authenticity_score >= 50
+          ? "bg-warning"
+          : "bg-destructive",
+      valClass:
+        tb.ml_authenticity_score >= 75
+          ? "text-verified"
+          : tb.ml_authenticity_score >= 50
+          ? "text-accent"
+          : "text-destructive",
+    },
+    {
+      label: "Публікації в інших ЗМІ",
+      weight: "15%",
+      score: tb.corroboration_score,
+      hint: "Зіставлення схожих матеріалів у незалежних редакціях",
+      barClass:
+        tb.corroboration_score >= 75
+          ? "bg-primary"
+          : tb.corroboration_score >= 50
+          ? "bg-warning"
+          : "bg-destructive",
+      valClass:
+        tb.corroboration_score >= 75
+          ? "text-primary"
+          : tb.corroboration_score >= 50
+          ? "text-accent"
+          : "text-destructive",
+    },
+  ];
+
+  const modelEntries = Object.entries(tb.models_breakdown || {});
+  const reasoningSteps = tb.xai_reasoning_steps || [];
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.22 }}
-      className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8"
+      transition={{ duration: 0.2 }}
+      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col gap-7"
     >
       {/* Верхня навігаційна панель */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button variant="outline" size="sm" asChild>
+        <Button variant="outline" size="sm" asChild className="whitespace-nowrap">
           <Link href="/">
             <ArrowLeft className="size-4 text-primary" data-icon="inline-start" />
-            Назад до стрічки новин
+            Назад до стрічки
           </Link>
         </Button>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={isBookmarked ? "default" : "outline"}
             size="sm"
             onClick={toggleBookmark}
             disabled={updatingBookmark}
+            className="whitespace-nowrap"
           >
             <Bookmark
               className={`size-4 ${isBookmarked ? "fill-current" : ""}`}
               data-icon="inline-start"
             />
-            {isBookmarked ? "У закладках" : "Зберегти в закладки"}
+            {isBookmarked ? "У закладках" : "Зберегти"}
           </Button>
 
-          <Button variant="secondary" size="sm" asChild>
+          <Button variant="secondary" size="sm" asChild className="whitespace-nowrap">
             <a href={article.url} target="_blank" rel="noopener noreferrer">
               Читати на сайті видання
               <ExternalLink className="size-4" data-icon="inline-end" />
@@ -449,164 +544,218 @@ export default function ArticleDetailPage() {
         </div>
       </div>
 
-      {/* 1. Головна шапка новини та підсумковий висновок Trust Score V4 */}
-      <Card className="border-border/90 bg-card/95 shadow-lg">
-        <CardHeader className="p-6 sm:p-8 pb-6 border-b border-border/75">
-          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6">
-            <div className="flex flex-col gap-3 max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="default">{article.category}</Badge>
-                <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Globe className="size-3.5 text-muted-foreground" />
-                  <strong className="text-foreground">{article.source_name}</strong> (
-                  <span className="font-mono">{article.domain}</span>)
-                </span>
-              </div>
-
-              <CardTitle className="text-2xl sm:text-3xl font-extrabold text-foreground leading-tight tracking-tight">
-                {renderHighlightedParagraph(article.title)}
-              </CardTitle>
-
-              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground pt-1 tabular-nums">
+      {/* 1. Редакційна шапка новини та підсумковий висновок */}
+      <header className="rounded-2xl border border-border/85 bg-card overflow-hidden">
+        <div className="p-6 sm:p-8 flex flex-col lg:flex-row lg:items-start justify-between gap-6">
+          <div className="flex flex-col gap-3.5 min-w-0 flex-1 max-w-4xl">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+              <Badge variant="default">{article.category}</Badge>
+              <span className="inline-flex items-center gap-1.5 min-w-0">
+                <Globe className="size-3.5 text-primary shrink-0" />
+                <strong className="text-foreground font-semibold">{article.source_name}</strong>
+                <span className="font-mono text-muted-foreground">({article.domain})</span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 tabular-nums">
+                <Clock className="size-3.5 shrink-0" />
+                {formattedDate}
+              </span>
+              {article.author && (
                 <span className="inline-flex items-center gap-1.5">
-                  <Clock className="size-3.5 text-muted-foreground" />
-                  {formattedDate}
+                  <UserIcon className="size-3.5 shrink-0" />
+                  <span className="text-foreground/90 font-medium">{article.author}</span>
                 </span>
-                {article.author && (
-                  <span className="inline-flex items-center gap-1.5">
-                    Автор: <strong className="text-foreground">{article.author}</strong>
-                  </span>
-                )}
-              </div>
+              )}
             </div>
 
-            <div className="flex flex-col sm:flex-row lg:flex-col items-start sm:items-center lg:items-end justify-between gap-3 shrink-0 bg-secondary/55 p-4 rounded-xl border border-border/80">
+            <h1 className="text-2xl sm:text-3xl lg:text-[2rem] font-extrabold text-foreground leading-[1.2] tracking-[-0.025em] text-balance">
+              {renderHighlightedParagraph(article.title)}
+            </h1>
+          </div>
+
+          <div className="flex flex-row lg:flex-col items-center lg:items-end justify-between gap-3 shrink-0 rounded-xl bg-secondary/50 border border-border/75 px-5 py-4 lg:min-w-[220px]">
+            <div className="flex flex-col lg:items-end gap-0.5">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Підсумковий індекс довіри
+                Індекс довіри
               </span>
-              <TrustBadge score={tb.score} verdict={tb.verdict} size="lg" />
+              <span className="text-[11px] text-muted-foreground/80">
+                Trust Score V4
+              </span>
+            </div>
+            <TrustBadge score={tb.score} verdict={tb.verdict} size="lg" />
+          </div>
+        </div>
+
+        {/* Інтегрована смуга висновку без вкладеного подвійного блоку */}
+        <div
+          className={`px-6 sm:px-8 py-4 border-t flex flex-col gap-2.5 ${
+            verdictTone === "destructive"
+              ? "bg-destructive/8 border-destructive/25"
+              : verdictTone === "warning"
+              ? "bg-warning/8 border-warning/25"
+              : "bg-primary/6 border-border/70"
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <Fingerprint
+              className={`size-4 mt-0.5 shrink-0 ${
+                verdictTone === "destructive"
+                  ? "text-destructive"
+                  : verdictTone === "warning"
+                  ? "text-accent"
+                  : "text-primary"
+              }`}
+            />
+            <div className="min-w-0 flex-1">
+              <span className="text-xs font-semibold text-foreground block mb-0.5">
+                Висновок системи простими словами
+              </span>
+              <p className="text-sm text-foreground/90 leading-relaxed max-w-[82ch]">
+                {tb.explanation}
+              </p>
             </div>
           </div>
-        </CardHeader>
 
-        <CardContent className="p-6 sm:p-8 pt-6">
-          <Alert variant="default" className="bg-primary/8 border-primary/25">
-            <Fingerprint className="size-4 text-primary" />
-            <AlertTitle className="text-primary">
-              Висновок системи простими словами
-            </AlertTitle>
-            <AlertDescription className="text-sm text-foreground leading-relaxed mt-1">
-              {tb.explanation}
-            </AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-
-      {/* Основна двоколонкова сітка */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* ЛІВА КОЛОНКА (7 з 12): Повний текст статті з інтерактивним підсвічуванням */}
-        <div className="lg:col-span-7 flex flex-col gap-6">
-          <Card className="border-border/90 bg-card/90">
-            <CardHeader className="p-6 sm:p-7 pb-4 border-b border-border/75">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex flex-col gap-1">
-                  <CardTitle className="text-base sm:text-lg font-bold text-foreground flex items-center gap-2">
-                    <FileText className="size-5 text-primary" />
-                    Повний текст статті з XAI-підсвічуванням
-                  </CardTitle>
-                  <CardDescription className="text-xs text-muted-foreground">
-                    Наведіть курсор на виділене слово або фразу, щоб переглянути пояснення ШІ
-                  </CardDescription>
-                </div>
-
-                <div className="inline-flex flex-wrap p-1 rounded-xl bg-secondary/80 border border-border gap-1">
-                  {(
-                    [
-                      { id: "all", label: "Усі мітки" },
-                      { id: "heatmap", label: "Теплова карта" },
-                      { id: "real", label: "Факти" },
-                      { id: "fake", label: "Ризики" },
-                      { id: "none", label: "Чистий текст" },
-                    ] as const
-                  ).map((modeItem) => (
-                    <Button
-                      key={modeItem.id}
-                      type="button"
-                      variant={highlightMode === modeItem.id ? "default" : "ghost"}
-                      size="xs"
-                      onClick={() => setHighlightMode(modeItem.id)}
-                      className="h-7 px-2.5 text-[11px]"
-                    >
-                      {modeItem.label}
-                    </Button>
-                  ))}
-                </div>
+          {tb.fact_check_flag &&
+            tb.matched_fact_checks &&
+            tb.matched_fact_checks.length > 0 && (
+              <div className="pl-7 flex flex-wrap items-center gap-2 pt-1">
+                {tb.matched_fact_checks.slice(0, 2).map((fc, idx) => (
+                  <div
+                    key={fc.id ?? idx}
+                    className="inline-flex flex-wrap items-center gap-2 rounded-lg bg-background/70 border border-destructive/30 px-3 py-1.5 text-xs max-w-full"
+                  >
+                    <Badge variant="destructive" className="text-[10px]">
+                      {fc.fact_checker} • {fc.rating || fc.verdict}
+                    </Badge>
+                    <span className="text-foreground/90 break-words">
+                      {fc.claim_text}
+                    </span>
+                    {fc.source_url && (
+                      <a
+                        href={fc.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline font-medium shrink-0"
+                      >
+                        Спростування
+                        <ExternalLink className="size-3" />
+                      </a>
+                    )}
+                  </div>
+                ))}
               </div>
-            </CardHeader>
+            )}
+        </div>
+      </header>
 
-            <CardContent className="p-6 sm:p-7 flex flex-col gap-5">
-              {/* Легенда підсвічування */}
-              {highlightMode !== "none" && highlightMode !== "heatmap" && (
-                <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-secondary/50 border border-border/80 text-xs">
-                  <span className="inline-flex items-center gap-1.5 text-verified">
-                    <span className="size-3 rounded bg-verified/30 border-b-2 border-verified" />
-                    Маркери фактажу та офіційних відомств
+      {/* 2. Основна асиметрична сітка: Читання зліва + Липкий XAI-інспектор справа */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-7 items-start">
+        {/* ЛІВА КОЛОНКА: Текст статті, теплова карта, токени та NER-атрибуція */}
+        <article className="lg:col-span-7 xl:col-span-8 min-w-0 rounded-2xl border border-border/85 bg-card overflow-hidden">
+          {/* Панель режиму підсвітки */}
+          <div className="px-6 sm:px-8 py-4 border-b border-border/75 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <FileText className="size-4 text-primary shrink-0" />
+              <h2 className="text-base font-bold text-foreground tracking-tight">
+                Текст матеріалу та XAI-підсвітка
+              </h2>
+            </div>
+
+            <div
+              role="group"
+              aria-label="Режим підсвічування тексту"
+              className="inline-flex flex-wrap p-1 rounded-xl bg-secondary/75 border border-border/80 gap-1"
+            >
+              {(
+                [
+                  { id: "all", label: "Усі мітки" },
+                  { id: "heatmap", label: "Теплова карта" },
+                  { id: "real", label: "Факти" },
+                  { id: "fake", label: "Ризики" },
+                  { id: "none", label: "Чистий текст" },
+                ] as const
+              ).map((modeItem) => (
+                <Button
+                  key={modeItem.id}
+                  type="button"
+                  variant={highlightMode === modeItem.id ? "default" : "ghost"}
+                  size="xs"
+                  onClick={() => setHighlightMode(modeItem.id)}
+                  className="h-7 px-2.5 text-[11px] whitespace-nowrap"
+                >
+                  {modeItem.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-6 sm:p-8 flex flex-col gap-6">
+            {/* Компактна легенда підсвітки */}
+            {highlightMode !== "none" && highlightMode !== "heatmap" && (
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground pb-3 border-b border-border/50">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-sm bg-verified/35 border border-verified" />
+                  <span className="text-foreground/85">Фактаж і джерела</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-sm bg-warning/35 border border-warning" />
+                  <span className="text-foreground/85">Емоційні слова</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-sm bg-destructive/35 border border-destructive" />
+                  <span className="text-foreground/85">Маніпуляції / клікбейт</span>
+                </span>
+                <span className="text-[11px] text-muted-foreground/80 sm:ml-auto">
+                  Наведіть на виділене слово для пояснення
+                </span>
+              </div>
+            )}
+
+            {/* Обкладинка статті */}
+            {article.image_url && !imgFailed && (
+              <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-secondary border border-border/70">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={article.image_url}
+                  alt={article.title}
+                  onError={() => setImgFailed(true)}
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            )}
+
+            {/* Основний текст або теплова карта речень */}
+            {highlightMode === "heatmap" &&
+            tb.sentence_analysis &&
+            tb.sentence_analysis.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                <p className="text-xs text-muted-foreground flex items-center gap-2 pb-1">
+                  <Sparkles className="size-3.5 text-primary shrink-0" />
+                  <span>
+                    Кожне речення оцінено окремо за контекстом, тональністю та посиланнями на джерела.
                   </span>
-                  <span className="inline-flex items-center gap-1.5 text-warning">
-                    <span className="size-3 rounded bg-warning/30 border-b-2 border-warning" />
-                    Емоційне або сенсаційне забарвлення
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-destructive">
-                    <span className="size-3 rounded bg-destructive/30 border-b-2 border-destructive" />
-                    Маніпулятивні звороти / клікбейт
-                  </span>
-                </div>
-              )}
+                </p>
 
-              {/* Зображення статті */}
-              {article.image_url && !imgFailed && (
-                <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-secondary border border-border">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={article.image_url}
-                    alt={article.title}
-                    onError={() => setImgFailed(true)}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              )}
-
-              {/* Текст статті або Пореченкова теплова карта */}
-              {highlightMode === "heatmap" &&
-              tb.sentence_analysis &&
-              tb.sentence_analysis.length > 0 ? (
-                <div className="flex flex-col gap-3">
-                  <Alert variant="default" className="bg-primary/8 border-primary/25">
-                    <Sparkles className="size-4 text-primary" />
-                    <AlertDescription className="text-xs text-foreground">
-                      <strong>Пореченкова теплова карта достовірності:</strong> кожне речення оцінено окремо з урахуванням контексту та посилань на джерела.
-                    </AlertDescription>
-                  </Alert>
-
+                <div className="divide-y divide-border/60 rounded-xl border border-border/75 overflow-hidden">
                   {tb.sentence_analysis.map((item) => {
                     const isGood = item.status === "factual";
                     const isBad = item.status === "manipulative";
                     return (
                       <div
                         key={item.index}
-                        className={`p-3.5 rounded-xl border-l-4 border transition-colors flex flex-col gap-1.5 ${
+                        className={`p-4 flex flex-col gap-1.5 transition-colors ${
                           isGood
-                            ? "bg-verified/6 border-verified/25 border-l-verified"
+                            ? "bg-verified/5"
                             : isBad
-                            ? "bg-destructive/10 border-destructive/30 border-l-destructive"
-                            : "bg-warning/8 border-warning/25 border-l-warning"
+                            ? "bg-destructive/8"
+                            : "bg-warning/6"
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                             {item.is_headline
-                              ? "Заголовок матеріалу"
-                              : `Речення #${item.index}`}
+                              ? "Заголовок"
+                              : `Речення ${item.index}`}
                           </span>
                           <Badge
                             variant={
@@ -615,150 +764,199 @@ export default function ArticleDetailPage() {
                             className="font-mono tabular-nums"
                           >
                             {isGood
-                              ? "Достовірно"
+                              ? "Фактаж"
                               : isBad
                               ? "Ризик маніпуляції"
                               : "Нейтрально"}{" "}
                             • {Number(item.score).toFixed(0)}%
                           </Badge>
                         </div>
-                        <p className="text-sm sm:text-base text-foreground leading-relaxed max-w-[68ch]">
+                        <p className="text-sm sm:text-[15px] text-foreground leading-relaxed max-w-[68ch]">
                           {item.sentence}
                         </p>
-                        <p className="text-xs text-muted-foreground italic">
-                          Пояснення ШІ: {item.reason}
+                        <p className="text-xs text-muted-foreground">
+                          {item.reason}
                         </p>
                       </div>
                     );
                   })}
                 </div>
-              ) : (
-                <div className="flex flex-col gap-4 text-sm sm:text-base text-foreground leading-relaxed max-w-[68ch]">
-                  {paragraphs.map((para, index) => (
-                    <p key={index} className="leading-7">
-                      {renderHighlightedParagraph(para)}
-                    </p>
-                  ))}
-                </div>
-              )}
+              </div>
+            ) : paragraphs.length > 0 ? (
+              <div className="flex flex-col gap-4 text-[15px] sm:text-base text-foreground/95 leading-[1.8] max-w-[68ch]">
+                {paragraphs.map((para, index) => (
+                  <p key={index} className="break-words">
+                    {renderHighlightedParagraph(para)}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/75 bg-secondary/40 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Першоджерело обмежило автоматичне завантаження повного тексту цієї публікації.
+                  Ви можете ознайомитися з оригіналом напряму на сайті видання.
+                </p>
+                <Button variant="secondary" size="sm" asChild className="shrink-0 whitespace-nowrap">
+                  <a href={article.url} target="_blank" rel="noopener noreferrer">
+                    Відкрити оригінал
+                    <ExternalLink className="size-4" data-icon="inline-end" />
+                  </a>
+                </Button>
+              </div>
+            )}
 
-              {/* Виявлені прийоми маніпуляцій */}
+            {/* Секція детального лінгвістичного аудиту під текстом */}
+            <div className="pt-6 mt-2 border-t border-border/75 flex flex-col gap-6">
+              {/* Виявлені стилістичні тригери */}
               {tb.manipulation_markers && tb.manipulation_markers.length > 0 && (
-                <Alert variant="destructive">
-                  <AlertTriangle className="size-4" />
-                  <AlertTitle>
-                    Виявлені стилістичні та емоційні тригери в тексті
-                  </AlertTitle>
-                  <AlertDescription className="mt-2 flex flex-wrap gap-2">
+                <div className="rounded-xl bg-destructive/8 border border-destructive/25 p-4 flex flex-col gap-2.5 min-w-0">
+                  <h3 className="text-xs font-bold text-destructive-foreground flex items-center gap-2">
+                    <AlertTriangle className="size-4 text-destructive shrink-0" />
+                    <span>Виявлені стилістичні та емоційні тригери</span>
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
                     {tb.manipulation_markers.map((m, i) => (
-                      <Badge key={i} variant="destructive">
+                      <Badge
+                        key={i}
+                        variant="destructive"
+                        className="whitespace-normal text-left h-auto py-1 px-2.5 leading-snug max-w-full break-words"
+                      >
                         {m}
                       </Badge>
                     ))}
-                  </AlertDescription>
-                </Alert>
+                  </div>
+                </div>
               )}
 
-              {/* Токени впливу */}
+              {/* Ключові токени XAI */}
               {(realTokens.length > 0 || fakeTokens.length > 0) && (
-                <div className="pt-4 border-t border-border/75 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-verified/6 border border-verified/25 flex flex-col gap-2">
-                    <h4 className="text-xs font-bold text-verified flex items-center gap-1.5">
-                      <CheckCircle2 className="size-4" />
-                      Ознаки чесної новини (контекст фактів)
-                    </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="min-w-0 overflow-hidden rounded-xl bg-secondary/40 border border-border/75 p-4 flex flex-col gap-2.5">
+                    <h3 className="text-xs font-bold text-verified flex items-center gap-1.5">
+                      <CheckCircle2 className="size-4 shrink-0" />
+                      <span>Фактичні та документальні опори</span>
+                    </h3>
                     {realTokens.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {realTokens.map((t, i) => (
-                          <Badge key={i} variant="verified">
-                            «{t.token}»
+                          <Badge
+                            key={i}
+                            variant="verified"
+                            title={t.reason || t.label}
+                            className="whitespace-normal text-left h-auto py-1 px-2.5 leading-snug max-w-full break-words"
+                          >
+                            <span>«{t.token}»</span>
+                            {t.label && (
+                              <span className="opacity-75 text-[10px] font-normal">
+                                · {t.label}
+                              </span>
+                            )}
                           </Badge>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Виражених офіційних маркерів не зафіксовано.
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Прямих згадок офіційних інституцій, документів чи кількісних метрик не зафіксовано.
                       </p>
                     )}
                   </div>
 
-                  <div className="p-4 rounded-xl bg-destructive/6 border border-destructive/25 flex flex-col gap-2">
-                    <h4 className="text-xs font-bold text-destructive flex items-center gap-1.5">
-                      <Sparkles className="size-4" />
-                      Слова, що насторожують (ознаки емоцій/ризику)
-                    </h4>
+                  <div className="min-w-0 overflow-hidden rounded-xl bg-secondary/40 border border-border/75 p-4 flex flex-col gap-2.5">
+                    <h3 className="text-xs font-bold text-destructive flex items-center gap-1.5">
+                      <Sparkles className="size-4 shrink-0" />
+                      <span>Маркери ризику та маніпуляцій</span>
+                    </h3>
                     {fakeTokens.length > 0 ? (
                       <div className="flex flex-wrap gap-1.5">
                         {fakeTokens.map((t, i) => (
-                          <Badge key={i} variant="destructive">
-                            «{t.token}»
+                          <Badge
+                            key={i}
+                            variant={t.category === "manipulation" ? "destructive" : "warning"}
+                            title={t.reason || t.label}
+                            className="whitespace-normal text-left h-auto py-1 px-2.5 leading-snug max-w-full break-words"
+                          >
+                            <span>«{t.token}»</span>
+                            {t.label && (
+                              <span className="opacity-80 text-[10px] font-normal">
+                                · {t.label}
+                              </span>
+                            )}
                           </Badge>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Підозрілих або маніпулятивних слів не виявлено.
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Клікбейту, пропагандистських штампів або анонімних вкидів не виявлено.
                       </p>
                     )}
                   </div>
                 </div>
               )}
 
-              {/* NER-детектор атрибуції */}
+              {/* NER-детектор атрибуції (повністю захищено від переповнення) */}
               {tb.attribution_analysis && (
-                <div className="pt-4 border-t border-border/75 flex flex-col gap-3">
+                <div className="flex flex-col gap-3 pt-2 border-t border-border/60">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h4 className="text-xs sm:text-sm font-bold text-foreground flex items-center gap-2">
-                      <ShieldCheck className="size-4 text-primary" />
-                      Перевірка цитат і посилань на першоджерела (NER-детектор атрибуції)
-                    </h4>
-                    <Badge variant="default" className="font-mono tabular-nums">
-                      Достовірність атрибуції:{" "}
+                    <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                      <Scale className="size-4 text-primary shrink-0" />
+                      <span>Перевірка цитат і першоджерел (NER-атрибуція)</span>
+                    </h3>
+                    <Badge variant="secondary" className="font-mono tabular-nums">
+                      Атрибуція:{" "}
                       {Number(tb.attribution_analysis.attribution_score || 70).toFixed(0)}%
                     </Badge>
                   </div>
-                  <p className="text-xs text-muted-foreground">
+
+                  <p className="text-xs text-muted-foreground leading-relaxed max-w-[72ch]">
                     {tb.attribution_analysis.summary}
                   </p>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="p-3.5 rounded-xl bg-secondary/50 border border-border flex flex-col gap-2">
-                      <span className="text-[11px] font-bold text-verified">
-                        Офіційні відомства та документальні джерела:
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="min-w-0 overflow-hidden rounded-xl bg-secondary/40 border border-border/75 p-4 flex flex-col gap-2.5">
+                      <span className="text-xs font-semibold text-verified">
+                        Офіційні відомства та джерела
                       </span>
                       {tb.attribution_analysis.verified_entities &&
                       tb.attribution_analysis.verified_entities.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="flex flex-wrap gap-2">
                           {tb.attribution_analysis.verified_entities.map((ent, idx) => (
-                            <Badge key={idx} variant="verified">
-                              <CheckCircle2 className="size-3" />
-                              {ent}
+                            <Badge
+                              key={idx}
+                              variant="verified"
+                              className="whitespace-normal text-left h-auto py-1 px-2.5 leading-snug max-w-full break-words items-start"
+                            >
+                              <CheckCircle2 className="size-3.5 mt-0.5 shrink-0" />
+                              <span>{ent}</span>
                             </Badge>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
                           Прямих назв державних чи міжнародних інституцій у тексті не знайдено.
                         </p>
                       )}
                     </div>
 
-                    <div className="p-3.5 rounded-xl bg-secondary/50 border border-border flex flex-col gap-2">
-                      <span className="text-[11px] font-bold text-warning">
-                        Псевдоцитати або анонімні посилання:
+                    <div className="min-w-0 overflow-hidden rounded-xl bg-secondary/40 border border-border/75 p-4 flex flex-col gap-2.5">
+                      <span className="text-xs font-semibold text-accent">
+                        Псевдоцитати й анонімні посилання
                       </span>
                       {tb.attribution_analysis.unverified_claims &&
                       tb.attribution_analysis.unverified_claims.length > 0 ? (
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="flex flex-wrap gap-2">
                           {tb.attribution_analysis.unverified_claims.map((claim, idx) => (
-                            <Badge key={idx} variant="destructive">
-                              <AlertTriangle className="size-3" />
-                              {claim}
+                            <Badge
+                              key={idx}
+                              variant="destructive"
+                              className="whitespace-normal text-left h-auto py-1 px-2.5 leading-snug max-w-full break-words items-start"
+                            >
+                              <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+                              <span>{claim}</span>
                             </Badge>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs text-muted-foreground leading-relaxed">
                           Маніпулятивних посилань на «анонімних інсайдерів» чи чутки не виявлено.
                         </p>
                       )}
@@ -766,343 +964,320 @@ export default function ArticleDetailPage() {
                   </div>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </div>
+        </article>
 
-        {/* ПРАВА КОЛОНКА (5 з 12): 5 факторів Trust Score V4 + Декомпозиція ШІ-моделей */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          <Card className="border-border/90 bg-card/90">
-            <CardHeader className="p-6 pb-4">
-              <CardTitle className="text-base sm:text-lg font-bold text-foreground flex items-center gap-2">
-                <ShieldCheck className="size-5 text-primary" />
-                5 факторів оцінки Trust Score V4
-              </CardTitle>
-              <CardDescription className="text-xs text-muted-foreground tabular-nums">
-                Внесок кожного критерію у підсумковий індекс довіри ({tb.score.toFixed(1)}%)
-              </CardDescription>
-            </CardHeader>
-
-            <CardContent className="p-6 pt-0 flex flex-col gap-3.5">
-              {/* Фактор 1 */}
-              <div className="p-3.5 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-foreground">
-                    1. Надійність сайту-джерела{" "}
-                    <span className="text-muted-foreground">(вага 25%)</span>
-                  </span>
-                  <span className="font-mono font-bold tabular-nums text-verified">
-                    {tb.source_reputation_score.toFixed(0)}%
-                  </span>
-                </div>
-                <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-verified h-full rounded-full"
-                    style={{ width: `${tb.source_reputation_score}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Репутація видання за моніторингом Інституту масової інформації (ІМІ)
-                </p>
+        {/* ПРАВА КОЛОНКА (ЛИПКА): Компактний XAI-інспектор без стіни карток */}
+        <aside className="lg:col-span-5 xl:col-span-4 min-w-0 lg:sticky lg:top-24 flex flex-col gap-5">
+          {/* Панель 1: Складники Trust Score V4 (чіткі рядки через divide-y) */}
+          <section className="rounded-2xl border border-border/85 bg-card overflow-hidden">
+            <div className="px-5 py-4 border-b border-border/75 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShieldCheck className="size-4 text-primary shrink-0" />
+                <h2 className="text-sm font-bold text-foreground">
+                  Фактори Trust Score V4
+                </h2>
               </div>
+              <span className="text-xs font-mono font-bold tabular-nums text-foreground">
+                {tb.score.toFixed(1)}%
+              </span>
+            </div>
 
-              {/* Фактор 2 */}
-              <div className="p-3.5 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-foreground">
-                    2. Спокійний тон без клікбейту{" "}
-                    <span className="text-muted-foreground">(вага 20%)</span>
-                  </span>
-                  <span className="font-mono font-bold tabular-nums text-primary">
-                    {tb.stylometry_score.toFixed(0)}%
-                  </span>
+            <div className="divide-y divide-border/60">
+              {factorRows.map((row) => (
+                <div key={row.label} className="px-5 py-3.5 flex flex-col gap-1.5">
+                  <div className="flex items-baseline justify-between gap-2 text-xs">
+                    <span className="font-semibold text-foreground">
+                      {row.label}
+                      <span className="text-muted-foreground font-normal ml-1.5">
+                        ({row.weight})
+                      </span>
+                    </span>
+                    <span
+                      className={`font-mono font-bold tabular-nums shrink-0 ${row.valClass}`}
+                    >
+                      {row.score.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${row.barClass}`}
+                      style={{ width: `${Math.min(100, Math.max(4, row.score))}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-snug">
+                    {row.hint}
+                  </p>
                 </div>
-                <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-primary h-full rounded-full"
-                    style={{ width: `${tb.stylometry_score}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Відсутність кричущих заголовків, капслоку та емоційного залякування
-                </p>
-              </div>
+              ))}
 
-              {/* Фактор 3 */}
-              <div className="p-3.5 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-foreground">
-                    3. Перевірка змісту ШІ{" "}
-                    <span className="text-muted-foreground">(вага 35%)</span>
-                  </span>
-                  <span className="font-mono font-bold tabular-nums text-accent">
-                    {tb.ml_authenticity_score.toFixed(0)}%
-                  </span>
-                </div>
-                <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-accent h-full rounded-full"
-                    style={{ width: `${tb.ml_authenticity_score}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Спільна оцінка трьох мовних моделей на схожість із правдивими новинами
-                </p>
-              </div>
-
-              {/* Фактор 4 */}
-              <div className="p-3.5 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-foreground">
-                    4. Підтвердження в інших ЗМІ{" "}
-                    <span className="text-muted-foreground">(вага 20%)</span>
-                  </span>
-                  <span className="font-mono font-bold tabular-nums text-primary">
-                    {tb.corroboration_score.toFixed(0)}%
-                  </span>
-                </div>
-                <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
-                  <div
-                    className="bg-primary h-full rounded-full"
-                    style={{ width: `${tb.corroboration_score}%` }}
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Крос-верифікація події в інших незалежних редакціях через pgvector
-                </p>
-              </div>
-
-              {/* Фактор 5 */}
+              {/* Статус звірки з базою фактчекерів */}
               <div
-                className={`p-3.5 rounded-xl border flex flex-col gap-1 ${
-                  tb.fact_check_flag
-                    ? "bg-destructive/10 border-destructive/30"
-                    : "bg-verified/8 border-verified/25"
+                className={`px-5 py-3.5 flex flex-col gap-1.5 ${
+                  tb.fact_check_flag ? "bg-destructive/8" : "bg-verified/5"
                 }`}
               >
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                   <span className="font-semibold text-foreground">
-                    5. База фактчекерів (StopFake / VoxCheck)
+                    База фактчеків (StopFake / VoxCheck)
                   </span>
                   <Badge variant={tb.fact_check_flag ? "destructive" : "verified"}>
-                    {tb.fact_check_flag ? "Виявлено спростування" : "Фейків не знайдено"}
+                    {tb.fact_check_flag ? "Є спростування" : "Фейків не знайдено"}
                   </Badge>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground leading-snug">
                   {tb.fact_check_flag
-                    ? "У базі українських фактчекерів знайдено спростування схожого твердження."
-                    : "Твердження статті не збігаються з жодним відомим фейком у базі спростувань."}
+                    ? "Твердження матеріалу збігається з офіційним спростуванням фактчекерів."
+                    : "У базі спростованих фейків StopFake та VoxCheck збігів не виявлено."}
                 </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </section>
 
-          {/* 3. Декомпозиція моделей ШІ */}
-          {tb.models_breakdown && Object.keys(tb.models_breakdown).length > 0 && (
-            <Card className="border-border/90 bg-card/90">
-              <CardHeader className="p-6 pb-4">
-                <CardTitle className="text-base sm:text-lg font-bold text-foreground flex items-center gap-2">
-                  <PieChart className="size-5 text-primary" />
-                  Декомпозиція оцінок ШІ-моделей
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground">
-                  Як кожен із трьох незалежних ШІ-експертів оцінив достовірність тексту
-                </CardDescription>
-              </CardHeader>
+          {/* Панель 2: Вкладки «ШІ-моделі» та «XAI-протокол» */}
+          {(modelEntries.length > 0 || reasoningSteps.length > 0) && (
+            <section className="rounded-2xl border border-border/85 bg-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border/75 bg-secondary/35">
+                <div
+                  role="tablist"
+                  aria-label="Деталі XAI-аудиту"
+                  className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-background/70 border border-border/75"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={inspectorTab === "models"}
+                    onClick={() => setInspectorTab("models")}
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
+                      inspectorTab === "models"
+                        ? "bg-primary text-primary-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <PieChart className="size-3.5 shrink-0" />
+                    <span>ШІ-моделі ({modelEntries.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={inspectorTab === "protocol"}
+                    onClick={() => setInspectorTab("protocol")}
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors whitespace-nowrap ${
+                      inspectorTab === "protocol"
+                        ? "bg-primary text-primary-foreground shadow-xs"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <ListChecks className="size-3.5 shrink-0" />
+                    <span>Протокол ({reasoningSteps.length})</span>
+                  </button>
+                </div>
+              </div>
 
-              <CardContent className="p-6 pt-0 flex flex-col gap-3">
-                {Object.entries(tb.models_breakdown).map(([modelKey, scoreVal]) => {
-                  const numScore = Number(scoreVal);
-                  const friendlyTitle =
-                    modelKey === "ukr_roberta_base" || modelKey === "ukr-roberta-base"
-                      ? "Український мовний ШІ (ukr-roberta)"
-                      : modelKey === "xlm_roberta_base" || modelKey === "xlm-roberta-base"
-                      ? "Міжнародний мовний ШІ (XLM-RoBERTa)"
-                      : "Гібридний детектор фейків (Ensemble)";
+              {inspectorTab === "models" ? (
+                <div className="divide-y divide-border/60">
+                  {modelEntries.map(([modelKey, scoreVal]) => {
+                    const numScore = Number(scoreVal);
+                    const friendlyTitle =
+                      modelKey === "ukr_roberta_base" || modelKey === "ukr-roberta-base"
+                        ? "Український ШІ (ukr-roberta)"
+                        : modelKey === "xlm_roberta_base" || modelKey === "xlm-roberta-base"
+                        ? "Багатомовний ШІ (XLM-RoBERTa)"
+                        : "Гібридний класифікатор (Ensemble)";
 
-                  const friendlyDesc =
-                    modelKey === "ukr_roberta_base" || modelKey === "ukr-roberta-base"
-                      ? "Спеціалізована нейромережа, навчена на корпусі українських новин та вкидів"
-                      : modelKey === "xlm_roberta_base" || modelKey === "xlm-roberta-base"
-                      ? "Багатомовна модель, що звіряє структуру тексту зі світовими стандартами"
-                      : "Статистичний класифікатор лексичних та стилометричних патернів";
+                    const friendlyDesc =
+                      modelKey === "ukr_roberta_base" || modelKey === "ukr-roberta-base"
+                        ? "Нейромережа, донавчена на корпусі українських новин і фейків"
+                        : modelKey === "xlm_roberta_base" || modelKey === "xlm-roberta-base"
+                        ? "Трансформерна оцінка структури тексту та стилістики"
+                        : "Статистичний ансамбль лексичних і стилометричних ознак";
 
-                  return (
-                    <div
-                      key={modelKey}
-                      className="p-3.5 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-2"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-foreground">
-                          {friendlyTitle}
-                        </span>
-                        <span className="text-xs font-mono font-bold tabular-nums text-primary">
-                          {numScore.toFixed(1)}%
-                        </span>
+                    return (
+                      <div key={modelKey} className="px-5 py-3.5 flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-foreground">
+                            {friendlyTitle}
+                          </span>
+                          <span className="text-xs font-mono font-bold tabular-nums text-primary">
+                            {numScore.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              numScore >= 75
+                                ? "bg-verified"
+                                : numScore >= 50
+                                ? "bg-warning"
+                                : "bg-destructive"
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(5, numScore))}%` }}
+                          />
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-snug">
+                          {friendlyDesc}
+                        </p>
                       </div>
-                      <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            numScore >= 75
-                              ? "bg-verified"
-                              : numScore >= 50
-                              ? "bg-warning"
-                              : "bg-destructive"
-                          }`}
-                          style={{ width: `${Math.min(100, Math.max(5, numScore))}%` }}
-                        />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="divide-y divide-border/60 max-h-[460px] overflow-y-auto">
+                  {reasoningSteps.map((step) => {
+                    const badgeVariant =
+                      step.status === "good"
+                        ? "verified"
+                        : step.status === "warning"
+                        ? "warning"
+                        : "destructive";
+                    return (
+                      <div key={step.step} className="px-5 py-3.5 flex flex-col gap-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="text-xs font-semibold text-foreground leading-snug">
+                            {step.step}. {step.component}
+                          </span>
+                          <Badge
+                            variant={badgeVariant}
+                            className="font-mono tabular-nums shrink-0"
+                          >
+                            {Number(step.score).toFixed(0)}%
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground leading-relaxed">
+                          {step.summary}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-muted-foreground leading-snug">
-                        {friendlyDesc}
-                      </p>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           )}
-
-          {/* Покроковий 5-рівневий аудит */}
-          {tb.xai_reasoning_steps && tb.xai_reasoning_steps.length > 0 && (
-            <Card className="border-border/90 bg-card/90">
-              <CardHeader className="p-6 pb-4">
-                <CardTitle className="text-sm font-bold text-foreground flex items-center gap-2">
-                  <ShieldCheck className="size-4 text-verified" />
-                  Покроковий XAI-протокол перевірки
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-6 pt-0 flex flex-col gap-2.5">
-                {tb.xai_reasoning_steps.map((step) => {
-                  const badgeVariant =
-                    step.status === "good"
-                      ? "verified"
-                      : step.status === "warning"
-                      ? "warning"
-                      : "destructive";
-                  return (
-                    <div
-                      key={step.step}
-                      className="p-3.5 rounded-xl bg-secondary/55 border border-border/80 flex flex-col gap-1.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-foreground">
-                          Крок {step.step}. {step.component}
-                        </span>
-                        <Badge
-                          variant={badgeVariant}
-                          className="font-mono tabular-nums"
-                        >
-                          {Number(step.score).toFixed(0)}%
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        {step.summary}
-                      </p>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+        </aside>
       </div>
 
-      {/* 4. Блок крос-верифікації */}
-      <Card className="border-border/90 bg-card/90">
-        <CardHeader className="p-6 sm:p-8 pb-4 border-b border-border/75">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <CardTitle className="text-lg sm:text-xl font-bold text-foreground flex items-center gap-2">
-                <Search className="size-5 text-primary" />
-                Висвітлення цієї події іншими ЗМІ (Крос-верифікація)
-              </CardTitle>
-              <CardDescription className="text-xs text-muted-foreground">
-                Семантичний пошук споріднених публікацій у незалежних редакціях за допомогою векторної бази pgvector та моделі MiniLM-L12-v2
-              </CardDescription>
-            </div>
-            <Badge variant="default" className="tabular-nums self-start sm:self-center">
-              Незалежних підтверджень: {tb.corroborating_articles?.length || 0}
-            </Badge>
+      {/* 3. Широкий блок споріднених публікацій в інших ЗМІ (за спаданням % схожості) */}
+      <section className="rounded-2xl border border-border/85 bg-card overflow-hidden">
+        <div className="px-6 sm:px-8 py-5 border-b border-border/75 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col gap-1 min-w-0">
+            <h2 className="text-lg font-bold text-foreground flex items-center gap-2 tracking-tight">
+              <Search className="size-5 text-primary shrink-0" />
+              <span>Публікації на цю тему в інших ЗМІ</span>
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Споріднені матеріали з незалежних редакцій, відсортовано за спаданням схожості
+            </p>
           </div>
-        </CardHeader>
+          <Badge variant="default" className="tabular-nums self-start sm:self-center">
+            Незалежних ЗМІ: {sortedCorroborating.length}
+          </Badge>
+        </div>
 
-        <CardContent className="p-6 sm:p-8 flex flex-col gap-5">
+        <div className="p-6 sm:p-8 flex flex-col gap-5">
           {tb.corroboration_summary && (
-            <div className="p-4 rounded-xl bg-secondary/50 border border-border/80 text-sm text-foreground">
+            <p className="text-sm text-foreground/90 leading-relaxed max-w-[82ch]">
               {tb.corroboration_summary}
-            </div>
+            </p>
           )}
 
-          {tb.corroborating_articles && tb.corroborating_articles.length > 0 ? (
+          {sortedCorroborating.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {tb.corroborating_articles.map((corr) => (
-                <Card
-                  key={corr.id}
-                  className="p-4 bg-secondary/45 border-border/80 hover:border-primary/40 transition-colors flex flex-col justify-between gap-3"
-                >
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold text-primary flex items-center gap-1.5">
-                        {corr.source_name}
-                        {corr.is_whitelisted && (
-                          <Badge variant="verified" className="text-[10px] px-1.5 py-0">
-                            Білий список ІМІ
-                          </Badge>
-                        )}
+              {sortedCorroborating.map((corr) => {
+                const simPct = Math.round(corr.similarity * 100);
+                const corrDate = corr.published_at
+                  ? new Date(corr.published_at).toLocaleString("uk-UA", {
+                      day: "numeric",
+                      month: "short",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  : null;
+
+                return (
+                  <div
+                    key={corr.id}
+                    className="min-w-0 rounded-xl bg-secondary/40 border border-border/75 hover:border-primary/45 transition-colors p-4 flex flex-col justify-between gap-3.5"
+                  >
+                    <div className="flex flex-col gap-2.5 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-bold text-primary truncate">
+                            {corr.source_name}
+                          </span>
+                          {corr.is_whitelisted && (
+                            <Badge
+                              variant="verified"
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              ІМІ
+                            </Badge>
+                          )}
+                        </div>
+                        <Badge
+                          variant={simPct >= 65 ? "verified" : "secondary"}
+                          className="font-mono tabular-nums shrink-0"
+                        >
+                          {simPct}% схожості
+                        </Badge>
+                      </div>
+
+                      <h3 className="text-sm font-semibold text-foreground leading-snug line-clamp-3 break-words">
+                        {corr.title}
+                      </h3>
+
+                      {corrDate && (
+                        <span className="text-[11px] text-muted-foreground tabular-nums inline-flex items-center gap-1">
+                          <Clock className="size-3 shrink-0" />
+                          {corrDate}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="pt-3 border-t border-border/65 flex items-center justify-between gap-2 text-xs tabular-nums">
+                      <span className="text-muted-foreground">
+                        Довіра:{" "}
+                        <strong className="text-verified">
+                          {corr.trust_score.toFixed(0)}%
+                        </strong>
                       </span>
-                      <Badge variant="outline" className="font-mono tabular-nums">
-                        {(corr.similarity * 100).toFixed(0)}%
-                      </Badge>
-                    </div>
-
-                    <h4 className="text-sm font-semibold text-foreground leading-snug line-clamp-2">
-                      {corr.title}
-                    </h4>
-                  </div>
-
-                  <div className="pt-3 border-t border-border/70 flex items-center justify-between gap-2 text-xs tabular-nums">
-                    <span className="text-muted-foreground">
-                      Довіра:{" "}
-                      <strong className="text-verified">
-                        {corr.trust_score.toFixed(0)}%
-                      </strong>
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <Button variant="secondary" size="xs" asChild>
-                        <Link href={`/news/${corr.id}`}>
-                          <Eye className="size-3.5" data-icon="inline-start" />
-                          Розбір
-                        </Link>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        asChild
-                        aria-label="Читати оригінал"
-                      >
-                        <a href={corr.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="size-3.5" />
-                        </a>
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button variant="secondary" size="xs" asChild className="whitespace-nowrap">
+                          <Link href={`/news/${corr.id}`}>
+                            <Eye className="size-3.5" data-icon="inline-start" />
+                            Розбір
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          asChild
+                          aria-label="Читати оригінал"
+                        >
+                          <a href={corr.url} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="size-3.5" />
+                          </a>
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </Card>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <EmptyState
               icon={Search}
-              title="Інших публікацій про цю подію ще не зафіксовано"
-              description="Це може бути свіжа або ексклюзивна публікація, яка ще очікує підтвердження в інших редакціях."
+              title="Споріднених публікацій в інших ЗМІ поки не знайдено"
+              description="Це може бути свіжа або ексклюзивна публікація, на яку ще немає матеріалів в інших редакціях."
             />
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* Схожі новини з цієї ж рубрики */}
+      {/* 4. Схожі новини з цієї ж рубрики */}
       {article.similar_articles && article.similar_articles.length > 0 && (
-        <section className="flex flex-col gap-4 pt-2">
-          <h2 className="text-lg sm:text-xl font-bold text-foreground">
+        <section className="flex flex-col gap-4 pt-1">
+          <h2 className="text-lg font-bold text-foreground tracking-tight">
             Інші новини рубрики «{article.category}»
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

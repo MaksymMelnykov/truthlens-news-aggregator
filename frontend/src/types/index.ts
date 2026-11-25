@@ -16,6 +16,9 @@ export interface XAITokenContribution {
   token: string;
   weight: number;
   direction: "fake_indicator" | "real_indicator" | string;
+  category?: string;
+  label?: string;
+  reason?: string;
 }
 
 export interface CorroboratingArticleItem {

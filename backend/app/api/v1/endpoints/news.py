@@ -278,32 +278,55 @@ async def get_article_detail(
     if not article:
         raise HTTPException(status_code=404, detail=f"Новину з ID {article_id} не знайдено")
 
-    # Якщо збережено лише короткий RSS-опис, довантажуємо повний текст статті з першоджерела
-    current_body = (article.full_text or "").strip()
-    if len(current_body) < 220 and article.url and article.url.startswith("http"):
-        try:
-            import httpx
-            import trafilatura
+    # Якщо збережено лише короткий опис або відсутні підпис/автор, довантажуємо деталі з першоджерела
+    from app.services.ingestion import build_summary_from_text, clean_author_name
 
-            async with httpx.AsyncClient(
-                headers=news_ingestion_service.headers,
-                follow_redirects=True,
-                timeout=2.8,
-            ) as client:
-                resp = await client.get(article.url)
-                if resp.status_code == 200 and resp.text:
-                    extracted = trafilatura.extract(
-                        resp.text,
-                        include_comments=False,
-                        include_tables=False,
-                        no_fallback=False,
-                    )
-                    if extracted and len(extracted.strip()) > len(current_body):
-                        article.full_text = extracted.strip()[:12000]
-                        await db.commit()
-                        await db.refresh(article)
-        except Exception:
-            await db.rollback()
+    current_body = (article.full_text or "").strip()
+    current_sum = (article.summary or "").strip()
+    current_auth = (article.author or "").strip()
+    needs_enrich = len(current_body) < 220 or len(current_sum) < 35 or not current_auth
+
+    if needs_enrich and article.url and article.url.startswith("http"):
+        updated_fields = False
+        if len(current_body) < 220 or not current_auth:
+            try:
+                details = await news_ingestion_service.extract_article_details(article.url)
+                extracted_text = (details.get("full_text") or "").strip()
+                if extracted_text and len(extracted_text) > len(current_body):
+                    article.full_text = extracted_text[:12000]
+                    current_body = article.full_text
+                    updated_fields = True
+                extracted_author = details.get("author")
+                if not current_auth:
+                    resolved_auth = clean_author_name(extracted_author, article.source_name)
+                    if resolved_auth:
+                        article.author = resolved_auth
+                        current_auth = resolved_auth
+                        updated_fields = True
+                if len(current_sum) < 35 and details.get("description"):
+                    from app.services.factcheck_service import clean_html_text
+                    desc = clean_html_text(details["description"])
+                    if len(desc) >= 35:
+                        article.summary = desc[:1000]
+                        current_sum = article.summary
+                        updated_fields = True
+            except Exception:
+                await db.rollback()
+
+        if len(current_sum) < 35 and len(current_body) >= 35:
+            article.summary = build_summary_from_text(current_body, max_len=260)
+            updated_fields = True
+
+        if not current_auth and article.source_name:
+            article.author = clean_author_name(None, article.source_name)
+            updated_fields = True
+
+        if updated_fields:
+            try:
+                await db.commit()
+                await db.refresh(article)
+            except Exception:
+                await db.rollback()
 
     is_bookmarked = False
     if current_user:
@@ -323,20 +346,41 @@ async def get_article_detail(
     similar_articles = sim_res.scalars().all()
 
     # Генерація розгорнутого звіту XAI через конвеєр Trust Score V4 (pgvector + Dual-RoBERTa)
+    # Обов'язково передаємо той самий об'єкт Source із БД, що й при імпорті RSS, для 100% узгодженості бала
     from app.services.ingestion import calculate_multi_factor_trust
+
+    source_obj: Optional[Source] = None
+    if article.source_id is not None:
+        source_obj = (
+            await db.execute(select(Source).where(Source.id == article.source_id))
+        ).scalar_one_or_none()
+    if source_obj is None and article.domain:
+        source_obj = (
+            await db.execute(select(Source).where(Source.domain == article.domain))
+        ).scalar_one_or_none()
 
     calc_score, calc_verdict, details = await calculate_multi_factor_trust(
         title=article.title,
         text=article.full_text or article.summary or "",
-        source=None,
+        source=source_obj,
         db=db,
         source_domain_override=article.domain,
         exclude_article_id=article.id,
+        reference_published_at=article.published_at,
     )
 
+    # Синхронізуємо збережений бал із актуальним перерахунком Trust Score V4 (наприклад, якщо інші ЗМІ вже підтвердили подію)
+    if article.trust_score is None or abs(float(article.trust_score) - float(calc_score)) >= 0.5:
+        article.trust_score = calc_score
+        article.verdict = calc_verdict
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()
+
     breakdown = TrustScoreBreakdown(
-        score=article.trust_score or calc_score,
-        verdict=article.verdict or calc_verdict,
+        score=calc_score,
+        verdict=calc_verdict,
         stylometry_score=float(details.get("stylometry_score", 85.0)),
         source_reputation_score=float(details.get("source_reputation", 85.0)),
         ml_authenticity_score=float(details.get("ml_authenticity_score", 85.0)),
@@ -394,6 +438,7 @@ async def get_related_cross_verified_articles(
         db=db,
         exclude_article_id=article.id,
         max_related=6,
+        reference_published_at=article.published_at,
     )
     items = [
         {

@@ -304,6 +304,72 @@ class EmbeddingService:
             logger.debug("Помилка інференсу MiniLM-384: %s", e)
             return None
 
+    def encode_minilm_384_batch(self, texts: Sequence[str]) -> Optional[List[Optional[np.ndarray]]]:
+        """
+        Пакетно обчислює L2-нормалізовані 384-вимірні вектори MiniLM-L12-v2
+        за один forward pass PyTorch (з використанням in-memory кешу).
+        """
+        if not texts:
+            return []
+        if not self._ensure_minilm_loaded() or self._minilm_model is None or self._minilm_tokenizer is None:
+            return None
+
+        keys = [str(t or "").strip()[:600] for t in texts]
+        results: List[Optional[np.ndarray]] = [None] * len(keys)
+        missing_indices: List[int] = []
+        missing_texts: List[str] = []
+
+        for idx, key in enumerate(keys):
+            if not key:
+                continue
+            cached = self._minilm_384_cache.get(key)
+            if cached is not None:
+                results[idx] = cached
+            else:
+                missing_indices.append(idx)
+                missing_texts.append(key)
+
+        if missing_texts:
+            try:
+                import torch
+
+                device = next(self._minilm_model.parameters()).device
+                encoded = self._minilm_tokenizer(
+                    missing_texts,
+                    padding=True,
+                    truncation=True,
+                    max_length=256,
+                    return_tensors="pt",
+                ).to(device)
+
+                with torch.no_grad():
+                    model_output = self._minilm_model(**encoded)
+
+                token_embeddings = model_output[0]
+                input_mask_expanded = (
+                    encoded["attention_mask"].unsqueeze(-1).expand(token_embeddings.size()).float()
+                )
+                sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, 1)
+                sum_mask = torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+                pooled_mat = (sum_embeddings / sum_mask).cpu().numpy().astype(np.float32)
+
+                norms = np.linalg.norm(pooled_mat, axis=1, keepdims=True)
+                norms[norms < 1e-8] = 1.0
+                pooled_mat = pooled_mat / norms
+
+                if len(self._minilm_384_cache) > 3000:
+                    self._minilm_384_cache.clear()
+
+                for local_i, orig_idx in enumerate(missing_indices):
+                    vec = pooled_mat[local_i]
+                    results[orig_idx] = vec
+                    self._minilm_384_cache[keys[orig_idx]] = vec
+            except Exception as e:
+                logger.debug("Помилка пакетного інференсу MiniLM-384: %s", e)
+                return None
+
+        return results
+
     def neural_semantic_similarity(self, text_a: str, text_b: str) -> Optional[float]:
         """
         Обчислює пряму 384-вимірну косинусну близькість за допомогою

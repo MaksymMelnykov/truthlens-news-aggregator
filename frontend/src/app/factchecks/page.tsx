@@ -131,12 +131,23 @@ export default function FactChecksPage() {
   }, [fetchClaims]);
 
   useEffect(() => {
+    let lastAutoFetchAt = Date.now();
+    const AUTO_REFRESH_MS = 300_000; // 5 хв — база спростувань оновлюється нечасто
+    const FOCUS_MIN_INTERVAL_MS = 120_000;
+
     const timer = setInterval(() => {
-      fetchClaims(false);
-    }, 25000);
+      if (document.visibilityState === "visible") {
+        lastAutoFetchAt = Date.now();
+        fetchClaims(false);
+      }
+    }, AUTO_REFRESH_MS);
 
     const handleVisibilityOrFocus = () => {
-      if (document.visibilityState === "visible") {
+      if (
+        document.visibilityState === "visible" &&
+        Date.now() - lastAutoFetchAt >= FOCUS_MIN_INTERVAL_MS
+      ) {
+        lastAutoFetchAt = Date.now();
         fetchClaims(false);
       }
     };

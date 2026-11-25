@@ -4,13 +4,11 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { toast } from "sonner";
-import { Article, ArticleDetail } from "@/types";
+import { Article } from "@/types";
 import { TrustBadge } from "./TrustBadge";
-import { XaiReportModal } from "./XaiReportModal";
 import {
   Bookmark,
   ExternalLink,
-  Fingerprint,
   FileText,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -31,7 +29,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({
   onBookmarkChange,
 }) => {
   const { user, token, apiUrl } = useAuth();
-  const { consumeXaiModal, canOpenArticleDetail, openLimitModal } = useGuestLimit();
+  const { canOpenArticleDetail, openLimitModal } = useGuestLimit();
   const [isBookmarked, setIsBookmarked] = useState<boolean>(
     Boolean(initialBookmarked || article.is_bookmarked)
   );
@@ -82,47 +80,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({
 
   const [imgSrc] = useState<string | null>(article.image_url || null);
   const [imgFailed, setImgFailed] = useState<boolean>(false);
-  const [showXai, setShowXai] = useState<boolean>(false);
-  const [xaiDetail, setXaiDetail] = useState<ArticleDetail | null>(null);
-  const [loadingXai, setLoadingXai] = useState<boolean>(false);
-  const [xaiError, setXaiError] = useState<string | null>(null);
-
-  const toggleXaiPanel = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const nextState = !showXai;
-    if (nextState && !user) {
-      const allowed = consumeXaiModal(article.id);
-      if (!allowed) {
-        return;
-      }
-    }
-    setShowXai(nextState);
-
-    if (nextState && !xaiDetail && !loadingXai) {
-      setLoadingXai(true);
-      setXaiError(null);
-      try {
-        const headers: Record<string, string> = {};
-        if (token) headers["Authorization"] = `Bearer ${token}`;
-        const res = await fetch(`${apiUrl}/news/${article.id}`, { headers });
-        if (!res.ok) {
-          throw new Error("Не вдалося завантажити аналітичний звіт для цієї статті");
-        }
-        const data: ArticleDetail = await res.json();
-        setXaiDetail(data);
-      } catch (err: unknown) {
-        setXaiError(
-          err instanceof Error
-            ? err.message
-            : "Помилка завантаження XAI-звіту"
-        );
-      } finally {
-        setLoadingXai(false);
-      }
-    }
-  };
 
   const formattedDate = new Date(article.published_at).toLocaleDateString(
     "uk-UA",
@@ -247,34 +204,21 @@ export const NewsCard: React.FC<NewsCardProps> = ({
         </div>
 
         <CardFooter className="flex-wrap gap-2">
-          <div className="flex items-center gap-1.5">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={toggleXaiPanel}
-              aria-label={`Швидкий XAI-розбір: ${article.title}`}
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href={`/news/${article.id}`}
+              aria-label={`Повний розбір статті: ${article.title}`}
+              onClick={(e) => {
+                if (!user && !canOpenArticleDetail(article.id)) {
+                  e.preventDefault();
+                  openLimitModal("xai_details");
+                }
+              }}
             >
-              <Fingerprint className="size-4 text-primary" />
-              <span>XAI Розбір</span>
-            </Button>
-
-            <Button asChild variant="outline" size="sm">
-              <Link
-                href={`/news/${article.id}`}
-                aria-label={`Повний розбір статті: ${article.title}`}
-                onClick={(e) => {
-                  if (!user && !canOpenArticleDetail(article.id)) {
-                    e.preventDefault();
-                    openLimitModal("xai_details");
-                  }
-                }}
-              >
-                <FileText className="size-4 text-accent" />
-                <span>Деталі</span>
-              </Link>
-            </Button>
-          </div>
+              <FileText className="size-4 text-accent" />
+              <span>Деталі</span>
+            </Link>
+          </Button>
 
           <TrustBadge
             score={article.trust_score}
@@ -282,25 +226,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({
             size="sm"
           />
         </CardFooter>
-
-        <XaiReportModal
-          isOpen={showXai}
-          onClose={() => setShowXai(false)}
-          loading={loadingXai}
-          error={xaiError}
-          data={
-            xaiDetail
-              ? {
-                  article_id: article.id,
-                  title: xaiDetail.title,
-                  domain: xaiDetail.domain || article.domain,
-                  url: xaiDetail.url || article.url,
-                  published_at: xaiDetail.published_at,
-                  trust_breakdown: xaiDetail.trust_breakdown,
-                }
-              : null
-          }
-        />
       </Card>
     </motion.article>
   );

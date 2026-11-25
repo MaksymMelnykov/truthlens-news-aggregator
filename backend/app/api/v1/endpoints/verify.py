@@ -106,6 +106,7 @@ async def verify_custom_text(
         db=db,
         source_domain_override=domain_str,
         exclude_article_id=existing_article.id if existing_article else None,
+        reference_published_at=existing_article.published_at if existing_article else None,
     )
 
     # Якщо стаття вже є в нашій стрічці новин — синхронізуємо підсумковий бал на 100%
@@ -258,6 +259,7 @@ async def verify_custom_url(
         db=db,
         source_domain_override=domain_str,
         exclude_article_id=existing_article.id if existing_article else None,
+        reference_published_at=existing_article.published_at if existing_article else None,
     )
 
     # Синхронізація TrustScore на 100%, якщо стаття вже є у стрічці новин

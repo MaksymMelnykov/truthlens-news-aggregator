@@ -723,15 +723,22 @@ function VerifyContent() {
                         <div className="flex flex-wrap gap-2">
                           {result.trust_breakdown.xai_top_tokens.map((tok, idx) => {
                             const isFake = tok.direction === "fake_indicator";
+                            const badgeVar =
+                              tok.category === "manipulation"
+                                ? "destructive"
+                                : isFake
+                                ? "warning"
+                                : "verified";
                             return (
                               <Badge
                                 key={idx}
-                                variant={isFake ? "destructive" : "verified"}
-                                className="px-2.5 py-1 text-xs"
+                                variant={badgeVar}
+                                title={tok.reason || tok.label}
+                                className="whitespace-normal text-left h-auto px-2.5 py-1 text-xs max-w-full break-words"
                               >
                                 <span>«{tok.token}»</span>
-                                <span className="opacity-80">
-                                  {isFake ? "— ризик емоцій" : "— маркер фактів"}
+                                <span className="opacity-80 font-normal">
+                                  — {tok.label || (isFake ? "ризик емоцій" : "фактична опора")}
                                 </span>
                               </Badge>
                             );
@@ -760,7 +767,7 @@ function VerifyContent() {
                         {result.trust_breakdown.attribution_analysis.summary}
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="p-3.5 rounded-xl bg-card border border-border flex flex-col gap-2">
+                        <div className="min-w-0 overflow-hidden p-3.5 rounded-xl bg-card border border-border flex flex-col gap-2">
                           <span className="text-xs font-semibold text-verified">
                             Офіційні відомства та документальні джерела:
                           </span>
@@ -770,9 +777,13 @@ function VerifyContent() {
                             <div className="flex flex-wrap gap-1.5">
                               {result.trust_breakdown.attribution_analysis.verified_entities.map(
                                 (ent, idx) => (
-                                  <Badge key={idx} variant="verified">
-                                    <CheckCircle2 className="size-3" />
-                                    {ent}
+                                  <Badge
+                                    key={idx}
+                                    variant="verified"
+                                    className="whitespace-normal text-left h-auto py-1 px-2.5 leading-snug max-w-full break-words items-start"
+                                  >
+                                    <CheckCircle2 className="size-3 mt-0.5 shrink-0" />
+                                    <span>{ent}</span>
                                   </Badge>
                                 )
                               )}
@@ -784,7 +795,7 @@ function VerifyContent() {
                           )}
                         </div>
 
-                        <div className="p-3.5 rounded-xl bg-card border border-border flex flex-col gap-2">
+                        <div className="min-w-0 overflow-hidden p-3.5 rounded-xl bg-card border border-border flex flex-col gap-2">
                           <span className="text-xs font-semibold text-warning">
                             Псевдоцитати або анонімні посилання:
                           </span>
@@ -794,9 +805,13 @@ function VerifyContent() {
                             <div className="flex flex-wrap gap-1.5">
                               {result.trust_breakdown.attribution_analysis.unverified_claims.map(
                                 (claim, idx) => (
-                                  <Badge key={idx} variant="destructive">
-                                    <AlertTriangle className="size-3" />
-                                    {claim}
+                                  <Badge
+                                    key={idx}
+                                    variant="destructive"
+                                    className="whitespace-normal text-left h-auto py-1 px-2.5 leading-snug max-w-full break-words items-start"
+                                  >
+                                    <AlertTriangle className="size-3 mt-0.5 shrink-0" />
+                                    <span>{claim}</span>
                                   </Badge>
                                 )
                               )}
@@ -922,15 +937,15 @@ function VerifyContent() {
                       </div>
                     )}
 
-                  {/* Крос-верифікація між незалежними ЗМІ */}
+                  {/* Публікації на цю тему в інших ЗМІ */}
                   <div className="p-5 rounded-xl bg-secondary/45 border border-border/80 flex flex-col gap-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                       <h3 className="text-xs sm:text-sm font-bold text-foreground flex items-center gap-2">
                         <Search className="size-4 text-primary" />
-                        Крос-верифікація у незалежних ЗМІ (pgvector)
+                        Публікації на цю тему в інших ЗМІ
                       </h3>
                       <Badge variant="outline" className="tabular-nums w-fit">
-                        Знайдено підтверджень:{" "}
+                        Незалежних ЗМІ:{" "}
                         {result.trust_breakdown.corroborating_articles?.length || 0}
                       </Badge>
                     </div>

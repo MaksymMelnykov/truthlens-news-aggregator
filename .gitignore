@@ -27,6 +27,7 @@ frontend/out/
 *.sqlite3
 *.db
 backend/data/local_db_backup.json
+backend/ml/data/db_raw_snapshot.json
 backend/ml/models/*.zip
 backend/ml/models/*/*.safetensors
 backend/ml/models/*/*.bin

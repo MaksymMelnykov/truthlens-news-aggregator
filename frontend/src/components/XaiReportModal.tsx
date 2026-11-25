@@ -195,7 +195,11 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {tb.manipulation_markers.map((marker, idx) => (
-                      <Badge key={idx} variant="destructive">
+                      <Badge
+                        key={idx}
+                        variant="destructive"
+                        className="whitespace-normal text-left h-auto py-1 break-words max-w-full"
+                      >
                         {marker}
                       </Badge>
                     ))}
@@ -270,15 +274,22 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                   <div className="flex flex-wrap gap-2">
                     {tb.xai_top_tokens.map((tok, idx) => {
                       const isFake = tok.direction === "fake_indicator";
+                      const badgeVar =
+                        tok.category === "manipulation"
+                          ? "destructive"
+                          : isFake
+                          ? "warning"
+                          : "verified";
                       return (
                         <Badge
                           key={idx}
-                          variant={isFake ? "destructive" : "verified"}
-                          className="px-3 py-1"
+                          variant={badgeVar}
+                          title={tok.reason || tok.label}
+                          className="whitespace-normal text-left h-auto px-3 py-1 max-w-full break-words"
                         >
                           <span>«{tok.token}»</span>
-                          <span className="opacity-80 text-[10px]">
-                            {isFake ? "(ризик маніпуляції)" : "(фактичний маркер)"}
+                          <span className="opacity-80 text-[10px] font-normal">
+                            ({tok.label || (isFake ? "ризик маніпуляції" : "фактична опора")})
                           </span>
                         </Badge>
                       );
@@ -311,7 +322,11 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                       tb.attribution_analysis.verified_entities.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {tb.attribution_analysis.verified_entities.map((ent, idx) => (
-                            <Badge key={idx} variant="verified">
+                            <Badge
+                              key={idx}
+                              variant="verified"
+                              className="whitespace-normal text-left h-auto py-1 max-w-full break-words"
+                            >
                               {ent}
                             </Badge>
                           ))}
@@ -322,7 +337,7 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                         </p>
                       )}
                     </Card>
-                    <Card className="p-3.5 bg-secondary/40 gap-2">
+                    <Card className="p-3.5 bg-secondary/40 gap-2 min-w-0 overflow-hidden">
                       <span className="text-xs font-semibold text-foreground">
                         Непідтверджені або анонімні посилання
                       </span>
@@ -330,7 +345,11 @@ export const XaiReportModal: React.FC<XaiReportModalProps> = ({
                       tb.attribution_analysis.unverified_claims.length > 0 ? (
                         <div className="flex flex-wrap gap-1.5">
                           {tb.attribution_analysis.unverified_claims.map((claim, idx) => (
-                            <Badge key={idx} variant="destructive">
+                            <Badge
+                              key={idx}
+                              variant="destructive"
+                              className="whitespace-normal text-left h-auto py-1 max-w-full break-words"
+                            >
                               {claim}
                             </Badge>
                           ))}

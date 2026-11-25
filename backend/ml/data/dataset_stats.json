@@ -1,13 +1,13 @@
 {
   "dataset_path": "D:\\6 курс 2026 1 семестр\\Дипломна робота\\NewsAggregatorApp\\backend\\ml\\data\\fake_news_dataset.csv",
-  "total_samples": 1200,
-  "real_samples_count": 600,
-  "fake_samples_count": 600,
+  "total_samples": 1600,
+  "real_samples_count": 800,
+  "fake_samples_count": 800,
   "class_balance_ratio": "50.0% Real / 50.0% Fake",
   "languages": {
-    "ua": 1092,
-    "en": 108
+    "ua": 1600,
+    "en": 0
   },
-  "db_extracted_real": 746,
-  "db_extracted_fake": 212
+  "db_extracted_real": 795,
+  "db_extracted_fake": 238
 }

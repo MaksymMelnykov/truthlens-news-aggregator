@@ -1,4 +1,6 @@
 import asyncio
+import html
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -17,14 +19,14 @@ from app.models.source import Source
 
 logger = logging.getLogger(__name__)
 
-# Каталог надійних україномовних RSS-стрічок новин (перевірено через Feedspot)
+# Каталог надійних україномовних RSS-стрічок новин (рейтинги та статуси узгоджені 1-в-1 із reputation_service / ІМІ)
 DEFAULT_FEEDS: List[Dict[str, Any]] = [
     {
         "name": "Українська правда",
         "domain": "pravda.com.ua",
         "homepage_url": "https://www.pravda.com.ua",
         "rss_url": "https://www.pravda.com.ua/rss/",
-        "reliability_rating": 94.0,
+        "reliability_rating": 95.0,
         "is_whitelisted": True,
         "language": "ua",
         "country": "UA",
@@ -44,7 +46,7 @@ DEFAULT_FEEDS: List[Dict[str, Any]] = [
         "domain": "zn.ua",
         "homepage_url": "https://zn.ua",
         "rss_url": "https://zn.ua/ukr/rss/full.rss",
-        "reliability_rating": 91.0,
+        "reliability_rating": 94.0,
         "is_whitelisted": True,
         "language": "ua",
         "country": "UA",
@@ -54,8 +56,8 @@ DEFAULT_FEEDS: List[Dict[str, Any]] = [
         "domain": "unian.net",
         "homepage_url": "https://www.unian.ua",
         "rss_url": "https://rss.unian.net/site/news_ukr.rss",
-        "reliability_rating": 89.0,
-        "is_whitelisted": True,
+        "reliability_rating": 70.0,
+        "is_whitelisted": False,
         "language": "ua",
         "country": "UA",
     },
@@ -64,8 +66,8 @@ DEFAULT_FEEDS: List[Dict[str, Any]] = [
         "domain": "unn.ua",
         "homepage_url": "https://unn.ua",
         "rss_url": "https://unn.ua/rss/news_uk.xml",
-        "reliability_rating": 88.0,
-        "is_whitelisted": True,
+        "reliability_rating": 70.0,
+        "is_whitelisted": False,
         "language": "ua",
         "country": "UA",
     },
@@ -74,8 +76,8 @@ DEFAULT_FEEDS: List[Dict[str, Any]] = [
         "domain": "fakty.ua",
         "homepage_url": "https://fakty.ua",
         "rss_url": "https://fakty.ua/rss_feed/all",
-        "reliability_rating": 90.0,
-        "is_whitelisted": True,
+        "reliability_rating": 68.0,
+        "is_whitelisted": False,
         "language": "ua",
         "country": "UA",
     },
@@ -84,7 +86,7 @@ DEFAULT_FEEDS: List[Dict[str, Any]] = [
         "domain": "lb.ua",
         "homepage_url": "https://lb.ua",
         "rss_url": "https://lb.ua/rss/ukr/news.xml",
-        "reliability_rating": 92.0,
+        "reliability_rating": 93.0,
         "is_whitelisted": True,
         "language": "ua",
         "country": "UA",
@@ -396,6 +398,7 @@ async def calculate_multi_factor_trust(
     source_domain_override: Optional[str] = None,
     exclude_article_id: Optional[int] = None,
     enable_cross_verification: bool = True,
+    reference_published_at: Optional[datetime] = None,
 ) -> tuple[float, str, Dict[str, Any]]:
     """
     Повний багатофакторний розрахунок Trust Score V4 (Тиждень 4):
@@ -432,7 +435,14 @@ async def calculate_multi_factor_trust(
     ml_res = ml_classifier_service.predict(title, text)
 
     xai_top_tokens = [
-        {"token": t.token, "weight": round(t.weight, 4), "direction": t.direction}
+        {
+            "token": t.token,
+            "weight": round(t.weight, 4),
+            "direction": t.direction,
+            "category": t.category,
+            "label": t.label,
+            "reason": t.reason,
+        }
         for t in ml_res.top_tokens
     ]
     models_breakdown = {k: round(float(v), 1) for k, v in (ml_res.models_breakdown or {}).items()}
@@ -533,13 +543,52 @@ async def calculate_multi_factor_trust(
                 },
             )
 
+    # Перевіряємо, чи сама стаття не є журналістським спростуванням фейку
+    combined_low = f"{title} {text[:800]}".lower()
+    is_journalistic_debunk = is_whitelisted and any(
+        marker in combined_low
+        for marker in (
+            "спростувал",
+            "виявився фейком",
+            "не відповідає дійсності",
+            "російський фейк",
+            "російська пропаганда",
+            "центр протидії дезінформації",
+            "stopfake",
+            "voxcheck",
+        )
+    )
+
     # Перевіряємо чи є пряме спростування або високоточний семантичний збіг із фейком
-    has_semantic_debunk = bool(semantic_fc_matches and semantic_fc_matches[0].similarity >= 0.72 and not is_whitelisted)
-    if fact_check_match.is_debunked or has_semantic_debunk:
+    # Для видань Білого списку ІМІ вимагаємо екстремально високу впевненість (>= 0.85), щоб уникати хибних спрацювань
+    direct_debunk_confirmed = (
+        fact_check_match.is_debunked
+        and not is_journalistic_debunk
+        and (not is_whitelisted or float(fact_check_match.confidence or 0.0) >= 0.85)
+    )
+    has_semantic_debunk = bool(
+        semantic_fc_matches
+        and semantic_fc_matches[0].similarity >= 0.78
+        and not is_whitelisted
+        and not is_journalistic_debunk
+    )
+    if direct_debunk_confirmed or has_semantic_debunk:
         top_fc = matched_fact_checks_dicts[0] if matched_fact_checks_dicts else None
+        match_conf = max(
+            float(fact_check_match.confidence or 0.0) if direct_debunk_confirmed else 0.0,
+            float(top_fc["similarity"]) if top_fc else 0.0,
+        )
+        # Динамічний індекс ризику (11%–39%) залежно від впевненості збігу, ML та стилометрії (замість фіксованих 15%)
+        base_debunk = 39.0 - (match_conf * 24.0)
+        ml_adj = (ml_res.ml_authenticity_score - 50.0) * 0.14
+        sty_adj = (sty_res.stylometry_trust_index - 50.0) * 0.10
+        debunk_score = round(max(11.0, min(39.0, base_debunk + ml_adj + sty_adj)), 1)
+        debunk_step_score = round(max(5.0, min(30.0, (1.0 - match_conf) * 45.0)), 1)
+
         reason = (
             fact_check_match.explanation
-            or (
+            if direct_debunk_confirmed and fact_check_match.explanation
+            else (
                 f"Виявлено семантичний збіг ({int(top_fc['similarity'] * 100)}%) зі спростованим фейком ({top_fc['fact_checker']}): «{top_fc['claim_text']}»."
                 if top_fc
                 else "Новина збігається з офіційно спростованим фейком."
@@ -554,30 +603,30 @@ async def calculate_multi_factor_trust(
             {
                 "step": 1,
                 "component": "База фактчеків (StopFake / VoxCheck + pgvector)",
-                "score": 10.0,
+                "score": debunk_step_score,
                 "status": "danger",
                 "summary": reason,
             },
             {
                 "step": 2,
                 "component": "Нейромережевий ансамбль (Dual-RoBERTa)",
-                "score": round(min(ml_res.ml_authenticity_score, 25.0), 1),
-                "status": "danger",
+                "score": round(ml_res.ml_authenticity_score, 1),
+                "status": "danger" if ml_res.ml_authenticity_score < 50 else "warning",
                 "summary": ml_res.explanation_summary,
             },
             {
                 "step": 3,
                 "component": "Стилометрія та маркери маніпуляцій",
                 "score": round(sty_res.stylometry_trust_index, 1),
-                "status": "warning",
+                "status": "warning" if sty_res.overall_penalty > 15 else "good",
                 "summary": f"{sty_res.summary_verdict} ({sty_res.stylometry_trust_index:.0f}%).",
             },
         ]
-        return 15.0, "High Risk", {
+        return debunk_score, "High Risk", {
             "source_reputation": source_rating,
             "stylometry_score": sty_res.stylometry_trust_index,
-            "ml_authenticity_score": min(ml_res.ml_authenticity_score, 25.0),
-            "corroboration_score": 10.0,
+            "ml_authenticity_score": round(ml_res.ml_authenticity_score, 1),
+            "corroboration_score": debunk_step_score,
             "factcheck_debunked": True,
             "fact_checker": top_fc["fact_checker"] if top_fc else None,
             "manipulation_markers": debunk_markers + markers[:4],
@@ -594,6 +643,9 @@ async def calculate_multi_factor_trust(
             "sentence_analysis": ml_res.sentence_analysis,
             "attribution_analysis": sty_res.attribution_analysis,
         }
+
+    # Якщо статтю не позначено як спростовану — не показуємо хибні збіги у блоці фактчеків
+    matched_fact_checks_dicts = []
 
     # 4. Ефективна оцінка ML та крос-верифікація між ЗМІ через pgvector
     effective_ml_score = ml_res.ml_authenticity_score
@@ -613,7 +665,8 @@ async def calculate_multi_factor_trust(
                 stylometry_score=sty_res.stylometry_trust_index,
                 db=db,
                 exclude_article_id=exclude_article_id,
-                max_related=5,
+                max_related=6,
+                reference_published_at=reference_published_at,
             )
             corroboration_score = corr_res.corroboration_score
             corroborating_articles_dicts = [
@@ -780,12 +833,233 @@ async def calculate_multi_factor_trust(
     return trust_score, verdict, breakdown
 
 
+CLOUDFLARE_JUNK_MARKERS = (
+    "enable javascript and cookies to continue",
+    "just a moment...",
+    "checking your browser before accessing",
+    "attention required! | cloudflare",
+    "cf-browser-verification",
+)
+
+# Домени, де RSS уже офіційно містить повний текст у <content:encoded>, а HTML-сторінки закриті Cloudflare
+RSS_FULLTEXT_PRIMARY_DOMAINS = {"champion.com.ua"}
+
+
+def _is_blocked_page_text(text: Optional[str]) -> bool:
+    if not text:
+        return True
+    low = text.strip().lower()
+    if len(low) < 25:
+        return True
+    return any(marker in low for marker in CLOUDFLARE_JUNK_MARKERS)
+
+
+def extract_rss_content_text(entry: Any) -> str:
+    """
+    Витягує повний очищений текст із полів RSS <content:encoded> / entry.content,
+    зберігаючи структуру абзаців і видаляючи HTML-теги, скрипти та подвійні HTML-сутності.
+    Вирішує проблему порожніх статей для Чемпіон (УП Спорт), Української правди та ZN.UA.
+    """
+    content_list = getattr(entry, "content", None) or []
+    raw_chunks: List[str] = []
+    for item in content_list:
+        val = item.get("value", "") if isinstance(item, dict) else getattr(item, "value", "")
+        if val and isinstance(val, str):
+            raw_chunks.append(val)
+    if not raw_chunks:
+        return ""
+
+    raw = "\n\n".join(raw_chunks)
+    # Прибираємо скрипти, стилі, iframe, вбудовані віджети соцмереж
+    raw = re.sub(r"<(script|style|iframe|noscript)[^>]*>.*?</\1>", " ", raw, flags=re.IGNORECASE | re.DOTALL)
+    # Зберігаємо розбиття на абзаци перед зняттям тегів
+    raw = re.sub(r"</(?:p|div|li|h[1-6]|blockquote)>", "\n\n", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"<br\s*/?>", "\n", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"<[^>]+>", " ", raw)
+    # Декодуємо HTML-сутності (двічі на випадок &amp;mdash; / &amp;quot; у champion.com.ua)
+    raw = html.unescape(html.unescape(raw))
+    raw = raw.replace("\r\n", "\n").replace("\r", "\n").replace("\xa0", " ").replace("\u200b", "")
+
+    paragraphs: List[str] = []
+    for block in re.split(r"\n{2,}", raw):
+        lines = [re.sub(r"[ \t]+", " ", ln).strip() for ln in block.split("\n")]
+        para = " ".join(ln for ln in lines if ln)
+        if not para:
+            continue
+        # Прибираємо сирі Twitter/X embed-хвости на кшталт "— IIHF (@IIHFHockey) November 25, 2026"
+        if "pic.twitter.com/" in para or ("https://t.co/" in para and "@" in para and len(para) < 350):
+            continue
+        paragraphs.append(para)
+
+    return "\n\n".join(paragraphs).strip()[:12000]
+
+
+def build_summary_from_text(full_text: str, max_len: int = 260) -> str:
+    """
+    Формує охайний 1–2-реченнєвий підпис (лід) для картки новини з початку повного тексту,
+    якщо RSS <description> порожній або занадто короткий (< 35 символів).
+    """
+    if not full_text:
+        return ""
+    flat = re.sub(r"\s+", " ", full_text).strip()
+    if not flat:
+        return ""
+    if len(flat) <= max_len:
+        return flat
+
+    # Пробуємо зібрати 1–2 повних речення в межах max_len
+    sentences = re.split(r"(?<=[.!?…])\s+", flat)
+    lead = ""
+    for sent in sentences:
+        candidate = f"{lead} {sent}".strip() if lead else sent
+        if len(candidate) <= max_len:
+            lead = candidate
+            if len(lead) >= 120:
+                break
+        else:
+            break
+
+    if len(lead) >= 60:
+        return lead
+
+    # Інакше акуратно обрізаємо по межі слова
+    cut = flat[: max_len - 1].rsplit(" ", 1)[0].rstrip(" ,;:-–—")
+    return f"{cut}…" if cut else flat[:max_len]
+
+
+def extract_author_from_html(html_text: str) -> Optional[str]:
+    """
+    Резервний витяг імені автора з JSON-LD (@type: Person), <meta name="author"> або rel="author",
+    коли trafilatura.extract_metadata() повертає None.
+    """
+    if not html_text:
+        return None
+
+    # 1. JSON-LD блоки <script type="application/ld+json">
+    for match in re.finditer(
+        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        raw_json = match.group(1).strip()
+        if not raw_json or '"author"' not in raw_json.lower():
+            continue
+        try:
+            data = json.loads(raw_json)
+        except Exception:
+            continue
+
+        nodes: List[Any] = []
+        if isinstance(data, list):
+            nodes.extend(data)
+        elif isinstance(data, dict):
+            nodes.append(data)
+            if isinstance(data.get("@graph"), list):
+                nodes.extend(data["@graph"])
+
+        found_names: List[str] = []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            auth = node.get("author")
+            if not auth:
+                continue
+            auth_items = auth if isinstance(auth, list) else [auth]
+            for item in auth_items:
+                if isinstance(item, str) and item.strip():
+                    found_names.append(item.strip())
+                elif isinstance(item, dict):
+                    atype = str(item.get("@type", "")).lower()
+                    name = str(item.get("name", "")).strip()
+                    if not name:
+                        continue
+                    # Віддаємо перевагу Person; пропускаємо Organization (для них буде охайний редакційний фолбек)
+                    if "organization" in atype:
+                        continue
+                    found_names.append(name)
+        if found_names:
+            deduped = list(dict.fromkeys(found_names))
+            return ", ".join(deduped[:3])
+
+    # 2. <meta name="author" content="...">
+    m_meta = re.search(
+        r'<meta[^>]+name=["\']author["\'][^>]+content=["\']([^"\']{2,120})["\']',
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    if not m_meta:
+        m_meta = re.search(
+            r'<meta[^>]+content=["\']([^"\']{2,120})["\'][^>]+name=["\']author["\']',
+            html_text,
+            flags=re.IGNORECASE,
+        )
+    if m_meta:
+        val = html.unescape(m_meta.group(1)).strip()
+        if val and not val.startswith(("http://", "https://", "@")):
+            return val
+
+    return None
+
+
+def clean_author_name(raw_author: Optional[str], source_name: str = "") -> Optional[str]:
+    """
+    Очищає і нормалізує рядок автора:
+    - Видаляє редакційні хвости на кшталт '; «Факти', '; Спеціально Для «Фактів', email-адреси, URL та Twitter-хендли.
+    - Нормалізує ALL-CAPS прізвища ('Ірина АЛЕКСЄЄВА' -> 'Ірина Алексєєва').
+    - Повертає чесну редакційну атрибуцію 'Редакція «<Видання>»', якщо стаття не має персонального підпису журналіста.
+    """
+    fallback = f"Редакція «{source_name.strip()}»" if source_name and source_name.strip() else None
+
+    if not raw_author:
+        return fallback
+
+    cleaned = html.unescape(str(raw_author)).replace("\xa0", " ").strip()
+    if not cleaned:
+        return fallback
+
+    # Email-рядки на кшталт "info@lb.ua (LB.ua)" або URL
+    if "@" in cleaned or "http://" in cleaned.lower() or "https://" in cleaned.lower():
+        return fallback
+
+    # Розбиваємо на частини за ';' або ',' і вичищаємо редакційні/технічні хвости
+    raw_parts = re.split(r"\s*[;,]\s*", cleaned)
+    clean_parts: List[str] = []
+    junk_re = re.compile(
+        r"^(?:«?факти?»?|спеціально\s+для.*|відділ\s+новин|редакція.*|кореспондент.*|getty\s*images|укрінформ|уніан|lb\.ua|zn\.ua|bbc.*|interfax.*)$",
+        flags=re.IGNORECASE,
+    )
+
+    for part in raw_parts:
+        p = part.strip(" «»\"'.,;:-–—")
+        if not p or len(p) < 3:
+            continue
+        if junk_re.match(p):
+            continue
+        # Нормалізуємо прізвища у верхньому регістрі (наприклад 'Ірина АЛЕКСЄЄВА' -> 'Ірина Алексєєва')
+        words = p.split()
+        norm_words = []
+        for w in words:
+            if len(w) >= 4 and w.isupper() and any("\u0400" <= ch <= "\u04ff" for ch in w):
+                norm_words.append(w[0].upper() + w[1:].lower())
+            else:
+                norm_words.append(w)
+        norm = " ".join(norm_words).strip()
+        if norm and norm not in clean_parts:
+            clean_parts.append(norm)
+
+    if not clean_parts:
+        return fallback
+
+    result = ", ".join(clean_parts[:3])
+    return result[:255]
+
+
 class NewsIngestionService:
     """Сервіс асинхронного збору та обробки новин з RSS-джерел."""
 
     def __init__(self):
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 TruthLens/1.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
         }
@@ -827,9 +1101,10 @@ class NewsIngestionService:
         return None
 
     async def extract_article_details(self, url: str) -> Dict[str, Any]:
-        """Витяг повного тексту статті та метаданих за допомогою trafilatura та OpenGraph."""
+        """Витяг повного тексту статті та метаданих за допомогою trafilatura, JSON-LD та OpenGraph."""
         details: Dict[str, Any] = {
             "full_text": None,
+            "description": None,
             "image_url": None,
             "author": None,
             "date": None,
@@ -837,17 +1112,18 @@ class NewsIngestionService:
         try:
             async with httpx.AsyncClient(headers=self.headers, follow_redirects=True, timeout=8.0) as client:
                 res = await client.get(url)
-                if res.status_code == 200:
-                    html = res.text
+                if res.status_code == 200 and res.text:
+                    page_html = res.text
                     extracted_text = trafilatura.extract(
-                        html,
+                        page_html,
                         include_comments=False,
                         include_tables=False,
-                        no_fallback=False
+                        no_fallback=False,
                     )
-                    details["full_text"] = extracted_text
+                    if extracted_text and not _is_blocked_page_text(extracted_text):
+                        details["full_text"] = extracted_text.strip()[:12000]
 
-                    meta = trafilatura.extract_metadata(html)
+                    meta = trafilatura.extract_metadata(page_html)
                     if meta:
                         if meta.image:
                             details["image_url"] = meta.image
@@ -855,12 +1131,34 @@ class NewsIngestionService:
                             details["author"] = meta.author
                         if meta.date:
                             details["date"] = meta.date
+                        if meta.description:
+                            details["description"] = html.unescape(str(meta.description)).strip()
+
+                    # Резервний пошук автора у JSON-LD та <meta name="author">
+                    if not details["author"]:
+                        details["author"] = extract_author_from_html(page_html)
+
+                    # Резервний пошук og:description для короткого підпису картки
+                    if not details["description"]:
+                        og_desc = re.search(
+                            r'<meta[^>]+(?:property|name)=["\'](?:og:description|description)["\'][^>]+content=["\']([^"\']+)["\']',
+                            page_html,
+                            re.IGNORECASE,
+                        )
+                        if not og_desc:
+                            og_desc = re.search(
+                                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:description|description)["\']',
+                                page_html,
+                                re.IGNORECASE,
+                            )
+                        if og_desc:
+                            details["description"] = html.unescape(og_desc.group(1)).strip()
 
                     # Якщо trafilatura не знайшла картинку, шукаємо og:image та twitter:image напряму в HTML
                     if not details["image_url"]:
-                        og_match = re.search(r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+                        og_match = re.search(r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)["\']', page_html, re.IGNORECASE)
                         if not og_match:
-                            og_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\']', html, re.IGNORECASE)
+                            og_match = re.search(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\']', page_html, re.IGNORECASE)
                         if og_match:
                             details["image_url"] = og_match.group(1).strip()
         except Exception as e:
@@ -887,7 +1185,9 @@ class NewsIngestionService:
         seen_in_feed: set[str] = set()
         for entry in parsed_feed.entries[:max_items]:
             raw_url = getattr(entry, "link", None)
-            title = getattr(entry, "title", "").strip()
+            from app.services.factcheck_service import clean_html_text
+
+            title = clean_html_text(getattr(entry, "title", ""))
             if not raw_url or not title:
                 continue
 
@@ -917,59 +1217,97 @@ class NewsIngestionService:
         if not new_candidates:
             return 0
 
-        # 3. Паралельне завантаження повного тексту та обкладинок для нових статей (до 6 одночасно)
-        sem = asyncio.Semaphore(6)
+        # 3. Паралельне завантаження повного тексту та обкладинок для нових статей
+        # Пропускаємо зайвий HTML-запит, якщо RSS уже віддав повний <content:encoded> + картинку + автора (або домен RSS-only)
+        sem = asyncio.Semaphore(4)
+        source_domain_low = (source.domain or "").lower().strip()
 
-        async def _fetch_details_guarded(target_url: str) -> Dict[str, Optional[str]]:
+        def _extract_rss_image(entry_obj: Any, raw_sum: str) -> Optional[str]:
+            if hasattr(entry_obj, "media_thumbnail") and entry_obj.media_thumbnail:
+                if entry_obj.media_thumbnail[0].get("url"):
+                    return entry_obj.media_thumbnail[0].get("url")
+            if hasattr(entry_obj, "media_content") and entry_obj.media_content:
+                for mc in entry_obj.media_content:
+                    if mc.get("url"):
+                        return mc.get("url")
+            if hasattr(entry_obj, "enclosures") and entry_obj.enclosures:
+                for enc in entry_obj.enclosures:
+                    href = enc.get("href", "")
+                    if "image" in enc.get("type", "") or href.split("?")[0].lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                        return href
+            if raw_sum:
+                m_img = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', raw_sum, re.IGNORECASE)
+                if m_img:
+                    return m_img.group(1).strip()
+            if hasattr(entry_obj, "content") and entry_obj.content:
+                for c in entry_obj.content:
+                    val = c.get("value", "") if isinstance(c, dict) else ""
+                    m_img = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', val, re.IGNORECASE)
+                    if m_img:
+                        return m_img.group(1).strip()
+            return None
+
+        pre_extracted: List[Dict[str, Any]] = []
+        for entry, title, article_url in new_candidates:
+            raw_sum = getattr(entry, "summary", "") or getattr(entry, "description", "")
+            rss_content = extract_rss_content_text(entry)
+            rss_img = _extract_rss_image(entry, raw_sum)
+            rss_author = getattr(entry, "author", None) or getattr(entry, "dc_creator", None)
+            needs_html = True
+            if source_domain_low in RSS_FULLTEXT_PRIMARY_DOMAINS and len(rss_content) >= 120:
+                needs_html = False
+            elif len(rss_content) >= 260 and rss_img and rss_author:
+                needs_html = False
+            pre_extracted.append({
+                "raw_summary": raw_sum,
+                "rss_content": rss_content,
+                "rss_image": rss_img,
+                "rss_author": rss_author,
+                "needs_html": needs_html,
+            })
+
+        async def _fetch_details_guarded(target_url: str, need_html: bool) -> Dict[str, Any]:
+            if not need_html:
+                return {"full_text": None, "description": None, "image_url": None, "author": None, "date": None}
             async with sem:
                 return await self.extract_article_details(target_url)
 
         details_list = await asyncio.gather(
-            *(_fetch_details_guarded(url) for _, _, url in new_candidates)
+            *(_fetch_details_guarded(url, pre["needs_html"]) for (_, _, url), pre in zip(new_candidates, pre_extracted))
         )
 
         new_articles_count = 0
 
-        for (entry, title, article_url), details in zip(new_candidates, details_list):
-            raw_summary = getattr(entry, "summary", "") or getattr(entry, "description", "")
+        for (entry, title, article_url), pre, details in zip(new_candidates, pre_extracted, details_list):
+            raw_summary = pre["raw_summary"]
+            rss_content = pre["rss_content"]
+            image_url = pre["rss_image"]
 
-            # 1. Пошук зображення безпосередньо в елементі RSS стрічки
-            image_url = None
+            # Очищення summary від HTML тегів та сутностей після витягу картинок
+            from app.services.factcheck_service import clean_html_text
 
-            # a) media_thumbnail
-            if hasattr(entry, "media_thumbnail") and entry.media_thumbnail:
-                image_url = entry.media_thumbnail[0].get("url")
-            # b) media_content
-            if not image_url and hasattr(entry, "media_content") and entry.media_content:
-                for mc in entry.media_content:
-                    if mc.get("url"):
-                        image_url = mc.get("url")
-                        break
-            # c) enclosures
-            if not image_url and hasattr(entry, "enclosures") and entry.enclosures:
-                for enc in entry.enclosures:
-                    href = enc.get("href", "")
-                    if "image" in enc.get("type", "") or href.split("?")[0].lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
-                        image_url = href
-                        break
-            # d) теги <img> всередині raw_summary або entry.content
-            if not image_url and raw_summary:
-                img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', raw_summary, re.IGNORECASE)
-                if img_match:
-                    image_url = img_match.group(1).strip()
-            if not image_url and hasattr(entry, "content") and entry.content:
-                for c in entry.content:
-                    val = c.get("value", "")
-                    img_match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', val, re.IGNORECASE)
-                    if img_match:
-                        image_url = img_match.group(1).strip()
-                        break
+            rss_summary = clean_html_text(raw_summary) if raw_summary else ""
+            html_text = (details.get("full_text") or "").strip()
+            html_desc = clean_html_text(details.get("description") or "") if details.get("description") else ""
 
-            # Очищення summary від базових HTML тегів після витягу картинок
-            summary = re.sub(r"<[^>]+>", "", raw_summary).strip() if raw_summary else ""
+            # 2. Вибір найповнішого тексту: HTML (trafilatura) vs RSS <content:encoded> vs summary
+            candidates_text = [t for t in (html_text, rss_content, rss_summary, html_desc) if t and not _is_blocked_page_text(t)]
+            full_text = max(candidates_text, key=len) if candidates_text else ""
 
-            # 2. Витяг повного тексту та метаданих
-            full_text = details.get("full_text") or summary
+            # Формуємо змістовний підпис для картки (summary): RSS summary -> og:description -> перші 1–2 речення full_text
+            if len(rss_summary) >= 35:
+                summary = rss_summary
+            elif len(html_desc) >= 35:
+                summary = html_desc
+            elif full_text:
+                summary = build_summary_from_text(full_text, max_len=260)
+            else:
+                summary = rss_summary
+
+            # Захист від порожніх «пустушок» без тексту й опису (наприклад, коли RSS порожній, а сайт повернув 403)
+            if len(full_text.strip()) < 25 and len(summary.strip()) < 25:
+                logger.info(f"[{source.name}] Пропущено статтю без тексту й опису: {title}")
+                continue
 
             # Якщо зображення ще не знайдено — беремо зі сторінки через OpenGraph / trafilatura
             if not image_url:
@@ -987,7 +1325,7 @@ class NewsIngestionService:
                 article_url,
                 default_category=feed_config.get("default_category"),
             )
-            author = details.get("author") or getattr(entry, "author", None)
+            author = clean_author_name(details.get("author") or pre["rss_author"], source.name)
 
             # 3. Якщо після всіх кроків зображення відсутнє — елегантний категорійний Unsplash fallback
             if not image_url:
@@ -1005,7 +1343,8 @@ class NewsIngestionService:
                 title=title,
                 text=full_text,
                 source=source,
-                db=db
+                db=db,
+                reference_published_at=published_at,
             )
 
             article = Article(
@@ -1014,7 +1353,7 @@ class NewsIngestionService:
                 source_id=source.id,
                 domain=source.domain,
                 source_name=source.name,
-                summary=summary[:1000] if summary else (full_text[:300] if full_text else ""),
+                summary=summary[:1000] if summary else build_summary_from_text(full_text, max_len=260),
                 full_text=full_text,
                 author=author[:255] if author else None,
                 language=feed_language,

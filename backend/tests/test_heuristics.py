@@ -138,7 +138,7 @@ async def test_multi_factor_trust_v2_blacklisted():
 
 @pytest.mark.asyncio
 async def test_multi_factor_trust_v2_debunked_claim(async_db):
-    """Тест жорсткого обмеження довіри для новини, що збігається зі спростованим фейком (<= 15 балів, High Risk)."""
+    """Тест динамічного обмеження довіри для новини, що збігається зі спростованим фейком (10–39 балів, High Risk)."""
     from app.models.claim import FactCheckClaim
 
     claim = FactCheckClaim(
@@ -160,9 +160,39 @@ async def test_multi_factor_trust_v2_debunked_claim(async_db):
         source=source,
         db=async_db
     )
-    assert score <= 15.0
+    assert 10.0 <= score <= 39.0
     assert verdict == "High Risk"
     assert breakdown.get("factcheck_debunked") is True
+
+
+@pytest.mark.asyncio
+async def test_factcheck_no_false_positive_on_unrelated_news(async_db):
+    """Перевірка, що загальні аналітичні статті StopFake або схожі фонові слова не дають хибних 15% на справжніх новинах."""
+    from app.models.claim import FactCheckClaim
+
+    analytical = FactCheckClaim(
+        claim="Російська пропаганда на Харківщині: про що брешуть російські телеграм-канали",
+        claimant="Дезінформаційні ресурси",
+        fact_checker="StopFake",
+        review_url="https://www.stopfake.org/uk/example-imi-overview/",
+        rating="Фейк",
+        explanation="Джерело: Юлія Напольська, для ІМІ Харківщина – один з регіонів...",
+        language="ua",
+    )
+    async_db.add(analytical)
+    await async_db.commit()
+
+    source = Source(name="Інтерфакс-Україна", domain="interfax.com.ua", reliability_rating=91.0, is_whitelisted=True)
+    score, verdict, breakdown = await calculate_multi_factor_trust(
+        title="Зеленський розраховує на залучення додаткових сил для захисту Запоріжжя від російських ударів",
+        text="Оновили з головнокомандувачем ЗСУ потреби у захисті Запоріжжя, написав Зеленський у телеграм-каналі.",
+        source=source,
+        db=async_db,
+        enable_cross_verification=False,
+    )
+    assert score >= 80.0
+    assert verdict == "Verified"
+    assert breakdown.get("factcheck_debunked") is False
 
 
 @pytest.mark.asyncio
@@ -235,3 +265,78 @@ async def test_reputation_api_endpoints():
         black_data = res_black.json()
         assert black_data["is_blacklisted"] is True
         assert black_data["status"] == "blacklisted"
+
+
+def test_evidence_based_xai_tokens_no_stopwords():
+    """Перевірка, що XAI-підсвітка не виділяє службові слова («його», «через», «також», «листопада»), а виділяє реальні факти й ризики."""
+    from app.services.ml_classifier_service import ml_classifier_service
+
+    clean_text = (
+        "23 листопада через атаки РФ також зафіксовано обмеження. "
+        "Про це повідомив його речник. За даними Укренерго, споживання впало на 14%, "
+        "а Кабінет Міністрів України виділив $15 млн згідно з постановою №120/2026."
+    )
+    clean_tokens = ml_classifier_service._extract_xai_tokens(clean_text, top_k=10)
+    token_lowers = {t.token.lower() for t in clean_tokens}
+
+    for banned in ("його", "через", "про це", "також", "листопада", "повідомив"):
+        assert banned not in token_lowers
+
+    assert any("укренерго" in t.token.lower() for t in clean_tokens)
+    assert any("14%" in t.token for t in clean_tokens)
+    assert any("$15 млн" in t.token.lower() for t in clean_tokens)
+    assert all(t.direction == "real_indicator" for t in clean_tokens)
+    assert all(bool(t.label and t.reason) for t in clean_tokens)
+
+    fake_text = (
+        "ШОК! Анонімні джерела повідомили, що київський режим приховує тотальний крах вже з понеділка!"
+    )
+    fake_tokens = ml_classifier_service._extract_xai_tokens(fake_text, top_k=10)
+    assert len(fake_tokens) >= 3
+    assert any(t.direction == "fake_indicator" and t.category == "manipulation" for t in fake_tokens)
+    assert any(t.direction == "fake_indicator" and t.category == "vague_attribution" for t in fake_tokens)
+
+
+def test_rss_content_summary_and_author_cleanup():
+    """Перевірка витягу тексту з RSS <content:encoded>, побудови підпису картки та очищення авторів."""
+    from types import SimpleNamespace
+    from app.services.ingestion import (
+        build_summary_from_text,
+        clean_author_name,
+        extract_author_from_html,
+        extract_rss_content_text,
+    )
+
+    # 1. RSS <content:encoded> (кейс champion.com.ua та pravda.com.ua)
+    fake_entry = SimpleNamespace(
+        content=[
+            {
+                "value": (
+                    "<p>Міжнародна федерація хокею оскаржить рішення CAS у Федеральному суді Швейцарії.</p>"
+                    "<p>Про це повідомила пресслужба IIHF&amp;mdash; деталі оприлюднять згодом.</p>"
+                )
+            }
+        ]
+    )
+    txt = extract_rss_content_text(fake_entry)
+    assert "Федеральному суді Швейцарії" in txt
+    assert "—" in txt
+    assert "<p>" not in txt
+
+    # 2. Автоматична побудова підпису (summary) для картки з повного тексту
+    lead = build_summary_from_text(txt, max_len=240)
+    assert len(lead) >= 60
+    assert lead.startswith("Міжнародна федерація хокею")
+
+    # 3. Очищення битих авторів (fakty.ua, lb.ua, ALL-CAPS) і редакційний фолбек
+    assert clean_author_name("Ірина АЛЕКСЄЄВА; «Факти", "Факти ICTV") == "Ірина Алексєєва"
+    assert clean_author_name("Аліна ДРОНОВА; Спеціально Для «Фактів", "Факти ICTV") == "Аліна Дронова"
+    assert clean_author_name("info@lb.ua (LB.ua)", "LB.ua (Лівий Берег)") == "Редакція «LB.ua (Лівий Берег)»"
+    assert clean_author_name(None, "Чемпіон (УП Спорт)") == "Редакція «Чемпіон (УП Спорт)»"
+
+    # 4. Витяг Person-автора з JSON-LD та ігнорування Organization
+    html_person = '<script type="application/ld+json">{"@type":"NewsArticle","author":{"@type":"Person","name":"Ангеліна Борець"}}</script>'
+    assert extract_author_from_html(html_person) == "Ангеліна Борець"
+
+    html_org = '<script type="application/ld+json">{"@type":"NewsArticle","author":{"@type":"Organization","name":"Interfax-Ukraine"}}</script>'
+    assert extract_author_from_html(html_org) is None

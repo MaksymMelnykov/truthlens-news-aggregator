@@ -65,23 +65,91 @@ def load_dataset() -> Tuple[List[str], np.ndarray, List[Dict[str, Any]]]:
     return texts, np.array(labels, dtype=np.int32), rows
 
 
+# Розширений український + технічний словник стоп-слів, дат, місяців, імен політиків та службових слів
+# для чистої інтерпретації ваг TF-IDF + LogisticRegression без артефактів («source», «листопада», «також», «про це»)
+UKRAINIAN_XAI_STOPWORDS = {
+    # Технічні / RSS / HTML артефакти
+    "source", "https", "http", "com", "www", "org", "net", "html", "quot", "apos", "nbsp",
+    "імі", "джерело", "медіа", "фото", "відео", "змі",
+    # Займенники, прийменники, сполучники, частки
+    "що", "як", "та", "на", "не", "до", "про", "для", "від", "або", "але", "вже", "під",
+    "при", "після", "через", "його", "її", "їх", "їхній", "їхні", "їхніх", "вони", "вона", "він",
+    "воно", "нас", "нам", "нами", "вас", "вам", "вами", "мене", "мені", "мною", "тебе", "тобі",
+    "себе", "собі", "собою", "ніщо", "нічого", "ніхто", "нікого", "жоден", "жодна", "жодне", "жодного",
+    "це", "цей", "ця", "ці", "цих", "цим", "цього", "цьому", "цій", "того", "тому", "тим",
+    "тих", "той", "такий", "така", "таке", "такі", "таких", "також", "лише", "тільки", "саме",
+    "навіть", "однак", "проте", "адже", "якщо", "коли", "щоб", "щоби", "аби", "хоча", "хоч",
+    "який", "яка", "яке", "які", "яких", "яким", "якою", "якого", "якому", "свій", "своя", "своє",
+    "свої", "своїх", "своїм", "свого", "свою", "своєї", "між", "серед", "перед", "проти", "щодо",
+    "крім", "окрім", "понад", "майже", "дуже", "більше", "менше", "більш", "менш", "потім", "тоді",
+    "тепер", "зараз", "тут", "там", "де", "куди", "звідки", "чому", "скільки", "усі", "всі", "усіх",
+    "всіх", "усім", "всім", "увесь", "весь", "вся", "все", "всього", "усього", "кожен", "кожна", "кожне",
+    "інший", "інша", "інше", "інші", "інших", "один", "одна", "одне", "одні", "одного", "однієї",
+    "два", "дві", "двох", "три", "трьох", "можна", "треба", "варто", "немає", "нема", "є", "був",
+    "була", "було", "були", "буде", "будуть", "бути", "може", "можуть", "міг", "могла", "могли",
+    "має", "мають", "мав", "мала", "мали", "мати", "став", "стала", "стало", "стали", "стане",
+    "стануть", "робить", "роблять", "зробив", "зробила", "зробили", "йде", "йдуть", "йдеться",
+    "нагадав", "нагадала", "додав", "додала", "сказав", "сказала", "сказали", "заявив", "заявила",
+    "заявили", "повідомив", "повідомила", "повідомили", "повідомляє", "повідомляють", "зазначив",
+    "зазначила", "зазначили", "пише", "пишуть", "словами", "даними", "часом", "раніше", "пізніше",
+    "назвав", "назвала", "назвали", "пояснив", "пояснила", "пояснили", "знову", "працює", "працюють",
+    "допомогою", "жодних", "відсутні", "дані", "даних", "життя", "роботи", "роботу", "справі",
+    "вперше", "відомо", "отримав", "отримала", "отримали", "хоче", "хочуть", "чекає", "чекають",
+    "залишився", "залишилася", "почав", "почала", "почали", "відбулося", "відбудеться", "триває",
+    "тривають", "вирішив", "вирішила", "вирішили", "поки", "доки", "ще", "ніж", "наче", "начебто",
+    "кілька", "кількох", "кількома", "боку", "виявили", "відкрили", "відкрив", "відкрила",
+    "тобто", "зокрема", "наприклад", "попри", "завдяки", "внаслідок", "протягом", "упродовж", "біля",
+    "коло", "навколо", "поблизу", "всередині", "поруч", "разом", "одночасно", "відтак", "натомість",
+    "водночас", "досі", "дотепер", "покищо", "наразі",
+    # Місяці, дні тижня, часові слова
+    "січень", "січня", "січні", "лютий", "лютого", "лютому", "березень", "березня", "березні",
+    "квітень", "квітня", "квітні", "травень", "травня", "травні", "червень", "червня", "червні",
+    "липень", "липня", "липні", "серпень", "серпня", "серпні", "вересень", "вересня", "вересні",
+    "жовтень", "жовтня", "жовтні", "листопад", "листопада", "листопаді", "грудень", "грудня", "грудні",
+    "понеділок", "вівторок", "середа", "середу", "четвер", "пятниця", "пятницю", "субота", "суботу",
+    "неділя", "неділю", "сьогодні", "вчора", "завтра", "року", "році", "років", "рік", "місяць",
+    "місяця", "місяців", "тиждень", "тижня", "тижнів", "день", "дня", "днів", "доби", "годин",
+    "години", "хвилин", "вечері", "вранці", "вночі", "вдень", "минулого", "наступного", "поточного",
+    # Надто загальні географічні / персональні / ситуативні слова конкретного періоду (щоб уникати entity bias)
+    "області", "область", "місті", "місто", "міста", "районі", "району", "частині", "країни",
+    "країні", "країн", "людей", "люди", "світу", "світі", "україни", "україні", "україну",
+    "україна", "українців", "українці", "український", "українська", "українські", "українських",
+    "росії", "росію", "росія", "російські", "російських", "російська", "російський",
+    "києві", "києва", "київ", "абу", "дабі", "харкові", "одесі", "дніпрі", "львові", "сумах",
+    "зеленський", "зеленського", "зеленському", "трамп", "трампа", "трампу", "путін", "путіна",
+    "байден", "байдена", "орбан", "орбана", "маск", "маска", "nvidia", "apple", "tesla", "google",
+    # Номери/абревіатури військових підрозділів (щоб бот-шаблон VoxCheck не штрафував реальні новини про ЗСУ)
+    "військовий", "військового", "військових", "військові", "військовому",
+    "омбр", "одшбр", "обр", "омпбр", "ошп", "ошбр", "овмбр", "оібр", "тро", "сзч",
+    # Англійські стоп-слова
+    "the", "and", "that", "with", "from", "this", "for", "are", "was", "were", "have", "has",
+    "had", "will", "would", "about", "into", "over", "after", "their", "they", "them", "been",
+}
+
+
+# Зберігає цілісність українських слів з апострофом та дефісом («здоров'я», «прем'єр-міністр»)
+UA_WORD_TOKEN_PATTERN = r"(?u)\b[A-Za-zА-Яа-яІіЇїЄєҐґ][A-Za-zА-Яа-яІіЇїЄєҐґ'’-]{2,}\b"
+
+
 def build_feature_union() -> FeatureUnion:
     """
     Побудова гібридного векторизатора:
-    поєднує словникові N-грами (1..2) та символьні N-грами (3..5),
+    поєднує словникові N-грами (1..2) без службових стоп-слів та символьні N-грами (3..5),
     що забезпечує стійкість до морфологічних словозмін української мови та клікбейт-варіацій.
     """
     word_vec = TfidfVectorizer(
         analyzer="word",
         ngram_range=(1, 2),
-        max_features=8000,
+        max_features=9000,
         sublinear_tf=True,
         min_df=2,
+        token_pattern=UA_WORD_TOKEN_PATTERN,
+        stop_words=sorted(UKRAINIAN_XAI_STOPWORDS),
     )
     char_vec = TfidfVectorizer(
         analyzer="char_wb",
         ngram_range=(3, 5),
-        max_features=8000,
+        max_features=9000,
         sublinear_tf=True,
         min_df=2,
     )
@@ -94,42 +162,75 @@ def build_feature_union() -> FeatureUnion:
 def extract_top_discriminative_features(
     word_vectorizer: TfidfVectorizer,
     logreg_model: LogisticRegression,
-    top_n: int = 12,
+    top_n: int = 25,
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Витягує найбільш значущі лексичні маркери для класу Fake (1) та Real (0)
-    для інтерпретованості рішень (Explainable AI - XAI) та графіка важливості ознак.
+    Витягує найбільш значущі, очищені лексичні маркери для класу Fake (1) та Real (0)
+    для інтерпретованості рішень (Explainable AI - XAI) та дашборду /admin/analytics.
     """
     feature_names = np.array(word_vectorizer.get_feature_names_out())
     coefs = logreg_model.coef_[0]
 
-    # Словник службових або технічних слів, які не несуть змістової інтерпретації на графіку
-    ignore_tokens = {
-        "https", "http", "com", "www", "org", "net", " що", "як ", "та ", "на ", "не ", "до ",
-        "про", "для", "від", "або", "але", "вже", "під", "при", "після", "через", "його", "вони",
-        "буде", "були", "було", "the", "and", "that", "with", "from", "this", "for", "are",
-    }
+    def _is_valid_xai_token(tok: str) -> bool:
+        clean = tok.strip().lower()
+        if len(clean) < 4:
+            return False
+        # Виключаємо цифри, дати («10 листопада», «2026») та латинські технічні уламки
+        if any(ch.isdigit() for ch in clean):
+            return False
+        if clean in UKRAINIAN_XAI_STOPWORDS:
+            return False
+        parts = clean.split()
+        if any(len(p) < 3 or p in UKRAINIAN_XAI_STOPWORDS for p in parts):
+            return False
+        # Ігноруємо неінформативні повтори одного слова
+        if len(parts) == 2 and parts[0] == parts[1]:
+            return False
+        return True
+
+    def _collect(indices: np.ndarray, expect_positive: bool) -> List[Dict[str, Any]]:
+        selected: List[Dict[str, Any]] = []
+        seen_stems: set[str] = set()
+        stem_usage: Dict[str, int] = {}
+        for idx in indices:
+            weight = float(coefs[idx])
+            if expect_positive and weight <= 0:
+                break
+            if not expect_positive and weight >= 0:
+                break
+            token = str(feature_names[idx]).strip()
+            if not _is_valid_xai_token(token):
+                continue
+            parts = token.lower().split()
+            part_stems = [p[:4] if len(p) >= 5 else p for p in parts]
+            stem_key = " ".join(part_stems)
+            # Уникаємо дублів («матчі»/«матчу», «атаки»/«атакували», «анонімні»/«анонімних»)
+            if stem_key in seen_stems:
+                continue
+            # Не допускаємо дублювання біграми та її складових уніграм («шокуючі подробиці» + «шокуючі» + «подробиці»)
+            if len(parts) == 2:
+                if all(st in seen_stems for st in part_stems):
+                    continue
+                if any(stem_usage.get(st, 0) >= 2 for st in part_stems):
+                    continue
+            else:
+                if stem_usage.get(part_stems[0], 0) >= 1:
+                    continue
+            seen_stems.add(stem_key)
+            for st in part_stems:
+                stem_usage[st] = stem_usage.get(st, 0) + 1
+            selected.append({"feature": token, "weight": round(weight, 4)})
+            if len(selected) >= top_n:
+                break
+        return selected
 
     fake_indices = np.argsort(coefs)[::-1]
     real_indices = np.argsort(coefs)
 
-    top_fake = []
-    for idx in fake_indices:
-        token = str(feature_names[idx]).strip()
-        if len(token) >= 4 and token not in ignore_tokens and not token.isdigit():
-            top_fake.append({"feature": token, "weight": round(float(coefs[idx]), 4)})
-        if len(top_fake) >= top_n:
-            break
-
-    top_real = []
-    for idx in real_indices:
-        token = str(feature_names[idx]).strip()
-        if len(token) >= 4 and token not in ignore_tokens and not token.isdigit():
-            top_real.append({"feature": token, "weight": round(float(coefs[idx]), 4)})
-        if len(top_real) >= top_n:
-            break
-
-    return {"fake_indicators": top_fake, "real_indicators": top_real}
+    return {
+        "fake_indicators": _collect(fake_indices, expect_positive=True),
+        "real_indicators": _collect(real_indices, expect_positive=False),
+    }
 
 
 def generate_thesis_figures(
@@ -282,9 +383,9 @@ def generate_thesis_figures(
     saved_files.append(str(conv_path))
 
     # 5. Важливість лексичних ознак (Explainable AI Feature Weights)
-    fig, ax = plt.subplots(figsize=(8.0, 5.8), dpi=300)
-    fake_top = xai_features["fake_indicators"][:8][::-1]
-    real_top = xai_features["real_indicators"][:8]
+    fig, ax = plt.subplots(figsize=(8.6, 6.8), dpi=300)
+    fake_top = xai_features["fake_indicators"][:12][::-1]
+    real_top = xai_features["real_indicators"][:12]
 
     combined_items = real_top + fake_top
     feat_labels = [item["feature"] for item in combined_items]
@@ -320,21 +421,23 @@ def train_and_evaluate_all() -> Dict[str, Any]:
         texts, y, test_size=0.22, random_state=42, stratify=y
     )
 
-    # 1. Модель 1: Logistic Regression (Word TF-IDF)
+    stop_words_list = sorted(UKRAINIAN_XAI_STOPWORDS)
+
+    # 1. Модель 1: Logistic Regression (Word TF-IDF без стоп-слів)
     pipe_lr = Pipeline([
-        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=8000, sublinear_tf=True, min_df=2)),
+        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=9000, sublinear_tf=True, min_df=2, token_pattern=UA_WORD_TOKEN_PATTERN, stop_words=stop_words_list)),
         ("clf", LogisticRegression(C=1.5, max_iter=1000, random_state=42)),
     ])
 
     # 2. Модель 2: Calibrated Linear SVM
     pipe_svm = Pipeline([
-        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=8000, sublinear_tf=True, min_df=2)),
+        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=9000, sublinear_tf=True, min_df=2, token_pattern=UA_WORD_TOKEN_PATTERN, stop_words=stop_words_list)),
         ("clf", CalibratedClassifierCV(LinearSVC(C=1.0, random_state=42), cv=3)),
     ])
 
     # 3. Модель 3: Random Forest NLP
     pipe_rf = Pipeline([
-        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=5000, sublinear_tf=True, min_df=2)),
+        ("tfidf", TfidfVectorizer(ngram_range=(1, 2), max_features=5000, sublinear_tf=True, min_df=2, token_pattern=UA_WORD_TOKEN_PATTERN, stop_words=stop_words_list)),
         ("clf", RandomForestClassifier(n_estimators=150, max_depth=18, random_state=42)),
     ])
 
@@ -459,11 +562,11 @@ def train_and_evaluate_all() -> Dict[str, Any]:
         "confusion_matrix": [[38, 1], [0, 38]],
     }
 
-    # Зберігаємо основний серіалізований класифікатор, обидва спеціалізовані підмоделі та інтерпретатор слів для FastAPI
+    # Зберігаємо основний серіалізований класифікатор, обидва спеціалізовані підмоделі та 25+25 очищених XAI-токенів для FastAPI
     xai_features = extract_top_discriminative_features(
         pipe_lr.named_steps["tfidf"],
         pipe_lr.named_steps["clf"],
-        top_n=15,
+        top_n=25,
     )
 
     artifact_bundle = {

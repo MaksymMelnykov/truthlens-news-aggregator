@@ -1,3 +1,4 @@
+import html
 import logging
 import re
 import time
@@ -13,6 +14,58 @@ from app.models.claim import FactCheckClaim
 from app.schemas.claim import FactCheckClaimCreate, FactCheckMatchResult, FactCheckClaimRead
 
 logger = logging.getLogger(__name__)
+
+
+def clean_html_text(raw: Optional[str]) -> str:
+    """Декодує HTML-сутності (&#160;, &#8230;, &quot;, &apos;), видаляє теги й нормалізує пробіли."""
+    if not raw:
+        return ""
+    text_val = html.unescape(str(raw))
+    text_val = re.sub(r"<[^>]+>", " ", text_val)
+    text_val = text_val.replace("\xa0", " ").replace("[…]", "…")
+    text_val = re.sub(r"\s+", " ", text_val).strip()
+    return text_val
+
+
+# Шаблони загальних аналітичних статей / дайджестів, які НЕ є окремими спростованими фейк-тезами
+ANALYTICAL_NON_CLAIM_PATTERNS = (
+    "про що брешуть",
+    "як росія використовує",
+    "як російська пропаганда",
+    "дайджест",
+    "підсумки тижня",
+    "огляд дезінформац",
+    "моделі інформаційного тиску",
+    "підписав указ",
+    "маша та ведмідь",
+    "для імі",
+)
+
+# Загальноновинні високочастотні слова, які зустрічаються щодня в реальних новинах
+# і самі по собі НЕ доводять збігу з конкретним фейком
+GENERIC_NEWS_STEMS = {
+    "україн", "росій", "росія", "кремл", "зелен", "прези", "волод", "путін",
+    "трамп", "війн", "війсь", "фронт", "облас", "місто", "міста", "місті",
+    "країн", "держа", "уряд", "влада", "влади", "медіа", "телег", "канал",
+    "відео", "фото", "санкц", "удар", "атак", "ракет", "дрон", "обстр",
+    "енерг", "світл", "елект", "окупа", "ворож", "ситуа", "рішен", "заяв",
+    "повіл", "поясн", "офіці", "новин", "пропа", "маніп", "дезін", "фейк",
+    "людей", "люди", "жител", "грома", "місце", "район", "сусід", "європ",
+    "світ", "світу", "році", "року", "років", "тижня", "місяц", "серед",
+}
+
+
+def is_specific_debunked_claim(claim_text: str, explanation: str = "") -> bool:
+    """Відрізняє конкретну спростовану фейк-тезу від загальних аналітичних оглядів StopFake / ІМІ."""
+    low = (claim_text or "").strip().lower()
+    if len(low) < 18:
+        return False
+    if any(pat in low for pat in ANALYTICAL_NON_CLAIM_PATTERNS):
+        return False
+    expl_low = (explanation or "").strip().lower()
+    if expl_low.startswith("джерело:") and "для імі" in expl_low[:90]:
+        return False
+    return True
 
 
 class FactCheckService:
@@ -125,24 +178,38 @@ class FactCheckService:
                                 continue
                             seen_urls.add(link)
 
-                            title = entry.get("title", "").strip()
+                            title = clean_html_text(entry.get("title", ""))
                             if not title:
+                                continue
+
+                            # Пропускаємо загальні аналітичні статті/дайджести ІМІ, які не є спростуванням конкретного фейку
+                            title_low = title.lower()
+                            has_explicit_label = bool(
+                                re.match(
+                                    r"^(фейк|маніпуляція|неправда|фотофейк|відеофейк|дезінформація|фейк\s+\w+)",
+                                    title_low,
+                                )
+                            )
+                            summary = entry.get("summary", "") or entry.get("description", "")
+                            clean_summary = clean_html_text(summary)
+                            explanation = clean_summary[:500] if clean_summary else None
+
+                            if not has_explicit_label and not is_specific_debunked_claim(title, explanation or ""):
                                 continue
 
                             # Очищення заголовка від маркерів "Фейк:" чи "Маніпуляція:"
                             clean_title = re.sub(
-                                r"^(Фейк|Маніпуляція|Неправда|Фотофейк|Відеофейк):\s*",
+                                r"^(Фейк|Маніпуляція|Неправда|Фотофейк|Відеофейк|Дезінформація):\s*",
                                 "",
                                 title,
                                 flags=re.IGNORECASE
                             ).strip()
-                            rating = "Фейк"
-                            if "маніпуляц" in title.lower():
-                                rating = "Маніпуляція"
+                            if not is_specific_debunked_claim(clean_title, explanation or ""):
+                                continue
 
-                            summary = entry.get("summary", "") or entry.get("description", "")
-                            clean_summary = re.sub(r"<[^>]+>", " ", summary).strip()
-                            explanation = clean_summary[:500] if clean_summary else None
+                            rating = "Фейк"
+                            if "маніпуляц" in title_low:
+                                rating = "Маніпуляція"
 
                             published_at = None
                             if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -180,7 +247,7 @@ class FactCheckService:
                 if resp.status_code == 200:
                     feed = feedparser.parse(resp.text)
                     for entry in feed.entries[:limit]:
-                        title = entry.get("title", "").strip()
+                        title = clean_html_text(entry.get("title", ""))
                         link = entry.get("link", "").strip()
                         # Фільтруємо лише фактчекерські матеріали VoxCheck
                         if not any(k in title.lower() for k in ["фейк", "маніпуляц", "дезінформац"]):
@@ -194,7 +261,7 @@ class FactCheckService:
                         ).strip()
                         rating = "Маніпуляція" if "маніпуляц" in title.lower() else "Фейк"
                         summary = entry.get("summary", "") or entry.get("description", "")
-                        clean_summary = re.sub(r"<[^>]+>", " ", summary).strip()
+                        clean_summary = clean_html_text(summary)
 
                         published_at = None
                         if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -338,85 +405,185 @@ class FactCheckService:
         words = re.findall(r"[\w']+", cleaned.lower())
         return {w for w in words if len(w) >= 4 and w not in stop_words}
 
+    def _extract_stems(self, text: str) -> set[str]:
+        """Витягує унікальні корені значущих слів (перші 5-6 літер), виключаючи подвійний підрахунок."""
+        kws = self._extract_keywords(text)
+        return {w[:5] if len(w) >= 6 else w for w in kws}
+
+    def _is_generic_stem(self, stem: str) -> bool:
+        return stem in GENERIC_NEWS_STEMS or any(stem.startswith(g) for g in GENERIC_NEWS_STEMS if len(g) >= 5)
+
     async def match_article(
-        self, title: str, text: str = "", db: Optional[AsyncSession] = None, threshold: float = 0.55
+        self, title: str, text: str = "", db: Optional[AsyncSession] = None, threshold: float = 0.62
     ) -> FactCheckMatchResult:
         """
-        Перевіряє статтю або запит на відповідність спростованим у базі фейкам.
-        Застосовує багаторівневе зіставлення:
-        1. Зіставлення заголовка (title) з твердженням (claim) — пріоритетне, оскільки суть фейку криється в заголовку.
-        2. Пореченнєве зіставлення тіла новини (text) — слова фейку мають концентруватися в межах одного речення, а не бути розкиданими по всьому тексту.
-        3. Зворотне зіставлення для коротких пошукових запитів користувача у віджеті перевірки.
+        Точна перевірка статті або пошукової тези на відповідність спростованим у базі фейкам:
+        - Для короткого запиту користувача у віджеті (/factchecks): лексичний + нейромережевий MiniLM пошук.
+        - Для повноцінної новини: суворий відбір конкретних спростувань (без загальних оглядів ІМІ),
+          дедуплікація коренів, вимога мінімум 3 специфічних (не-фонових) збігів
+          та обов'язкова семантична верифікація через MiniLM-L12-v2 (>= 0.72), щоб виключити хибні 15%.
         """
-        title_keywords = self._extract_keywords(title)
-        
+        from app.services.embedding_service import embedding_service
+
+        clean_title_in = clean_html_text(title)
+        clean_text_in = clean_html_text(text)
+        title_stems = self._extract_stems(clean_title_in)
+
         # Якщо вхідний текст дуже короткий (пошуковий запит користувача без тіла статті)
-        is_short_query = len(title_keywords) <= 5 and not (text and len(text.strip()) > 30)
+        is_short_query = len(title_stems) <= 6 and not (clean_text_in and len(clean_text_in) > 45)
 
         # Отримуємо заяви з 15-хвилинного in-memory кешу (щоб не тягнути 200 рядків на кожну статтю)
         all_claims = await self._get_cached_claims(db)
-
         if not all_claims:
             return FactCheckMatchResult(is_debunked=False, confidence=0.0)
 
-        # Розбиваємо текст на окремі речення, щоб перевіряти локальну концентрацію слів
-        sentences = [s.strip() for s in re.split(r"[.!?\n]+", text or "") if len(s.strip()) > 20]
+        # Для перевірки новинних статей ігноруємо загальні аналітичні статті/дайджести
+        eligible_claims = (
+            all_claims
+            if is_short_query
+            else [fc for fc in all_claims if is_specific_debunked_claim(fc.claim, fc.explanation or "")]
+        )
+        if not eligible_claims:
+            return FactCheckMatchResult(is_debunked=False, confidence=0.0)
+
+        # 1. Режим короткого запиту користувача на сторінці «База фактчеків»
+        if is_short_query:
+            scored_short: List[Tuple[float, FactCheckClaimRead]] = []
+            for fc in eligible_claims:
+                c_stems = self._extract_stems(fc.claim)
+                if not c_stems:
+                    continue
+                inter = title_stems & c_stems
+                if len(inter) >= 2:
+                    q_score = len(inter) / max(1, len(title_stems))
+                    scored_short.append((q_score, fc))
+
+            # Додатково перевіряємо семантику MiniLM по топ-кандидатах або всіх заявах батчем
+            q_vec = embedding_service.encode_minilm_384(clean_title_in)
+            if q_vec is not None:
+                c_vecs = embedding_service.encode_minilm_384_batch([fc.claim for fc in eligible_claims])
+                if c_vecs is not None:
+                    best_fc: Optional[FactCheckClaimRead] = None
+                    best_combined = 0.0
+                    for fc, c_vec in zip(eligible_claims, c_vecs):
+                        if c_vec is None:
+                            continue
+                        nsim = max(0.0, min(1.0, float(c_vec @ q_vec)))
+                        c_stems = self._extract_stems(fc.claim)
+                        lex = len(title_stems & c_stems) / max(1, len(title_stems)) if title_stems else 0.0
+                        combined = 0.65 * nsim + 0.35 * lex
+                        if (nsim >= 0.62 or (lex >= 0.50 and nsim >= 0.45)) and combined > best_combined:
+                            best_combined = combined
+                            best_fc = fc
+                    if best_fc is not None and best_combined >= 0.52:
+                        clean_expl = clean_html_text(best_fc.explanation or best_fc.claim)
+                        return FactCheckMatchResult(
+                            is_debunked=True,
+                            confidence=round(min(0.99, best_combined), 2),
+                            matched_claim=best_fc,
+                            explanation=f"Знайдено спростування від {best_fc.fact_checker} ({best_fc.rating}): {clean_expl}",
+                        )
+
+            if scored_short:
+                scored_short.sort(key=lambda x: x[0], reverse=True)
+                top_score, top_fc = scored_short[0]
+                if top_score >= 0.50:
+                    clean_expl = clean_html_text(top_fc.explanation or top_fc.claim)
+                    return FactCheckMatchResult(
+                        is_debunked=True,
+                        confidence=round(min(0.99, top_score), 2),
+                        matched_claim=top_fc,
+                        explanation=f"Знайдено спростування від {top_fc.fact_checker} ({top_fc.rating}): {clean_expl}",
+                    )
+
+            return FactCheckMatchResult(is_debunked=False, confidence=0.0)
+
+        # 2. Режим перевірки повноцінної новини (сувора перевірка без хибних спрацювань)
+        sentences = [s.strip() for s in re.split(r"[.!?\n]+", clean_text_in) if len(s.strip()) > 25][:25]
+        sent_stems_list = [(sent, self._extract_stems(sent)) for sent in sentences]
+
+        # Перший прохід: швидкий лексичний відбір кандидатів зі специфічними (не-фоновими) збігами
+        lexical_candidates: List[Tuple[float, str, FactCheckClaimRead, bool]] = []
+        for fc in eligible_claims:
+            c_stems = self._extract_stems(fc.claim)
+            if len(c_stems) < 3:
+                continue
+
+            # a) Збіг по заголовку (пріоритетний)
+            t_inter = title_stems & c_stems
+            t_distinct = [s for s in t_inter if not self._is_generic_stem(s)]
+            if len(t_inter) >= 3 and len(t_distinct) >= 2:
+                t_ratio = len(t_inter) / len(c_stems)
+                if t_ratio >= 0.50:
+                    lexical_candidates.append((t_ratio, clean_title_in, fc, True))
+                    continue
+
+            # b) Збіг по конкретному реченню (лише при високій концентрації специфічних коренів)
+            best_s_ratio = 0.0
+            best_sent = ""
+            for sent, s_stems in sent_stems_list:
+                s_inter = s_stems & c_stems
+                s_distinct = [s for s in s_inter if not self._is_generic_stem(s)]
+                if len(s_inter) >= 4 and len(s_distinct) >= 3:
+                    s_ratio = len(s_inter) / len(c_stems)
+                    if s_ratio >= 0.62 and s_ratio > best_s_ratio:
+                        best_s_ratio = s_ratio
+                        best_sent = sent
+            if best_sent:
+                lexical_candidates.append((best_s_ratio, best_sent, fc, False))
+
+        if not lexical_candidates:
+            return FactCheckMatchResult(is_debunked=False, confidence=0.0)
+
+        lexical_candidates.sort(key=lambda x: x[0], reverse=True)
+        top_candidates = lexical_candidates[:6]
 
         best_match: Optional[FactCheckClaimRead] = None
         highest_score: float = 0.0
 
-        for fc in all_claims:
-            claim_keywords = self._extract_keywords(fc.claim)
-            if not claim_keywords:
-                continue
+        # Другий прохід: обов'язкова нейромережева верифікація контексту через MiniLM-L12-v2
+        title_vec = embedding_service.encode_minilm_384(clean_title_in)
+        for lex_ratio, matched_snippet, fc, is_headline_match in top_candidates:
+            if title_vec is not None:
+                claim_vec = embedding_service.encode_minilm_384(fc.claim)
+                snippet_vec = (
+                    title_vec
+                    if is_headline_match
+                    else embedding_service.encode_minilm_384(matched_snippet)
+                )
+                if claim_vec is not None and snippet_vec is not None:
+                    snippet_nsim = max(0.0, min(1.0, float(snippet_vec @ claim_vec)))
+                    title_nsim = max(0.0, min(1.0, float(title_vec @ claim_vec)))
 
-            def get_matched(source_set: set[str], target_set: set[str]) -> set[str]:
-                m = set()
-                for s in source_set:
-                    for t in target_set:
-                        if s == t or (len(s) >= 5 and len(t) >= 5 and s[:5] == t[:5]):
-                            m.add(s)
-                            break
-                return m
+                    if is_headline_match:
+                        # Заголовок має дійсно передавати той самий фейковий наратив
+                        if snippet_nsim < 0.72:
+                            continue
+                        final_conf = 0.65 * snippet_nsim + 0.35 * lex_ratio
+                    else:
+                        # Якщо збіг лише в одному реченні тіла — вимагаємо дуже високої подібності речення І зв'язку з темою заголовка
+                        if snippet_nsim < 0.78 or title_nsim < 0.52:
+                            continue
+                        final_conf = 0.60 * snippet_nsim + 0.25 * lex_ratio + 0.15 * title_nsim
 
-            # 1. Якщо це короткий пошуковий запит користувача у віджеті
-            if is_short_query and title_keywords:
-                matched_query = get_matched(title_keywords, claim_keywords)
-                if len(matched_query) >= 2:
-                    q_score = len(matched_query) / len(title_keywords)
-                    if q_score > highest_score:
-                        highest_score = q_score
+                    if final_conf >= threshold and final_conf > highest_score:
+                        highest_score = final_conf
                         best_match = fc
-                continue
+                    continue
 
-            # 2. Перевірка заголовка новини проти заяви
-            matched_title = get_matched(claim_keywords, title_keywords)
-            if len(matched_title) >= 3:
-                t_score = len(matched_title) / len(claim_keywords)
-                if t_score > highest_score:
-                    highest_score = t_score
-                    best_match = fc
+            # Резервний режим без MiniLM: вимагаємо ще суворіший лексичний поріг
+            fallback_thresh = 0.70 if is_headline_match else 0.78
+            if lex_ratio >= fallback_thresh and lex_ratio > highest_score:
+                highest_score = lex_ratio
+                best_match = fc
 
-            # 3. Якщо в заголовку збігу немає, перевіряємо кожне окреме речення тіла новини
-            if highest_score < threshold and sentences:
-                for sent in sentences:
-                    sent_kws = self._extract_keywords(sent)
-                    matched_sent = get_matched(claim_keywords, sent_kws)
-                    # Для речення вимагаємо концентрацію щонайменше 4 слів заяви або >= 70% збігу
-                    if len(matched_sent) >= 4:
-                        s_score = len(matched_sent) / len(claim_keywords)
-                        if s_score > highest_score:
-                            highest_score = s_score
-                            best_match = fc
-
-        # Поріг відсікання
-        effective_threshold = 0.50 if is_short_query else threshold
-        if highest_score >= effective_threshold and best_match is not None:
+        if best_match is not None and highest_score >= threshold:
+            clean_expl = clean_html_text(best_match.explanation or best_match.claim)
             return FactCheckMatchResult(
                 is_debunked=True,
-                confidence=round(min(1.0, highest_score), 2),
+                confidence=round(min(0.99, highest_score), 2),
                 matched_claim=best_match,
-                explanation=f"Знайдено спростування від {best_match.fact_checker} ({best_match.rating}): {best_match.explanation or best_match.claim}",
+                explanation=f"Знайдено спростування від {best_match.fact_checker} ({best_match.rating}): {clean_expl}",
             )
 
         return FactCheckMatchResult(is_debunked=False, confidence=round(highest_score, 2))
